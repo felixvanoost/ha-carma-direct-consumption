@@ -135,11 +135,20 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     ) -> None:
         for meter in meters:
             level = logging.INFO if months[meter.meter_id] > REFRESH_MONTHS else logging.DEBUG
+            day_label = "day" if len(meter.rows) == 1 else "days"
+            month_label = "month" if len(meter.months) == 1 else "months"
             _LOGGER.log(
-                level, "Meter %s: read %d day(s) from %d month(s) (%s to %s); stopped because: %s",
-                meter.meter_id, len(meter.rows), len(meter.months),
+                level,
+                "Meter %s: read %d %s from %d %s (%s to %s). Stop reason: %s.",
+                meter.meter_id,
+                len(meter.rows),
+                day_label,
+                len(meter.months),
+                month_label,
                 meter.months[0].strftime("%b %Y") if meter.months else "-",
-                meter.months[-1].strftime("%b %Y") if meter.months else "-", meter.stop_reason)
+                meter.months[-1].strftime("%b %Y") if meter.months else "-",
+                meter.stop_reason,
+            )
             self._import_statistics(meter, roles[meter.meter_id])
 
     async def async_reimport(self, months: int) -> None:
@@ -150,7 +159,12 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         requested_months = {meter_id: months for meter_id in wanted}
 
         async with self._refresh_lock:
-            _LOGGER.info("Re-importing %d month(s) of history for %d meter(s)", months, len(wanted))
+            month_label = "month" if months == 1 else "months"
+            meter_label = "meter" if len(wanted) == 1 else "meters"
+            _LOGGER.info(
+                "Re-importing %d %s of history for %d %s.",
+                months, month_label, len(wanted), meter_label,
+            )
             meters = await self._async_fetch_meters(requested_months, wanted)
             data = self._meter_data_by_id(meters, wanted)
 
@@ -179,8 +193,8 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         if not new:
             if cursor and meter.rows and cursor > meter.rows[-1][0].isoformat():
                 _LOGGER.warning(
-                    "Meter %s: saved import progress (%s) is ahead of the newest day the portal has (%s). "
-                    "Run the 'Re-import history' action to rebuild it.",
+                    "Meter %s: saved import cursor (%s) is later than the newest date returned by "
+                    "the CARMA portal (%s). Run the 'Re-import history' action to rebuild statistics.",
                     meter.meter_id, cursor, meter.rows[-1][0])
             return
 
@@ -210,7 +224,11 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             "cursor": new[idx][0].isoformat(),
             "sum_before": round(sum_before + sum(v for _, v in new[:idx]), 6),
         }
-        _LOGGER.debug("Imported %d day(s) for meter %s", len(stats), meter.meter_id)
+        day_label = "day" if len(stats) == 1 else "days"
+        _LOGGER.debug(
+            "Imported statistics for %d %s for meter %s.",
+            len(stats), day_label, meter.meter_id,
+        )
 
     async def async_remove_state(self) -> None:
         await self._store.async_remove()

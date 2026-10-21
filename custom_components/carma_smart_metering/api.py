@@ -108,7 +108,7 @@ class CarmaClient:
                 raise CarmaConnectionError(f"HTTP {err.status} from the CARMA portal") from err
             except (aiohttp.ClientError, TimeoutError) as err:
                 raise CarmaConnectionError(f"Cannot reach the CARMA portal: {err}") from err
-            _LOGGER.debug("CARMA portal returned a server error. Retrying in %.0f s", delay)
+            _LOGGER.debug("CARMA portal returned a server error. Retrying in %.0f seconds.", delay)
             await asyncio.sleep(delay)
         raise CarmaConnectionError("unreachable")
 
@@ -179,21 +179,28 @@ class CarmaClient:
         return await self._post_form(self._graph_url, html, button=button)
 
     async def _to_latest_month(self, html: str) -> str:
-        """Show the month holding the newest data."""
+        """Show the latest chart month containing the reported reading."""
 
         html = await self._press(html, "currMonth_btn")
-        for _ in range(MAX_FORWARD_STEPS):
+        for steps in range(MAX_FORWARD_STEPS + 1):
             chart = _parse_chart(html)
             if not chart.reading_date:
-                break
-            if chart.month >= chart.reading_date.replace(day=1):
-                break
+                raise CarmaParseError("The chart has no reading date to identify the latest month")
+            latest_month = chart.reading_date.replace(day=1)
+            if chart.month >= latest_month:
+                return html
+            if steps == MAX_FORWARD_STEPS:
+                raise CarmaParseError(
+                    f"Could not reach the latest reading month {latest_month:%Y-%m}; "
+                    f"stopped at {chart.month:%Y-%m} after {MAX_FORWARD_STEPS} month steps"
+                )
             nxt = await self._press(html, "nextMonth_btn")
             moved = _parse_chart(nxt)
-            if moved.month == chart.month:
-                break
+            if moved.month <= chart.month:
+                raise CarmaParseError(
+                    f"CARMA's Next Month button did not advance beyond {chart.month:%Y-%m}"
+                )
             html = nxt
-        return html
 
     async def _read_meter(self, html: str, number: str, depth: int) -> tuple[MeterData, str]:
         """Walk back `depth` months from the newest one."""

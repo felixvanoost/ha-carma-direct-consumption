@@ -175,8 +175,8 @@ async def test_config_flow_cannot_connect(recorder_mock, enable_custom_integrati
 async def test_history_walk_is_logged(recorder_mock, enable_custom_integrations, hass, portal, caplog):
     caplog.set_level("INFO")
     await setup_entry(hass)
-    assert f"Meter {COLD}: read {len(portal.all_days())} day(s) from 5 month(s) (Jun 2026 to Oct 2026)" in caplog.text
-    assert "stopped because: Prev Month stopped moving" in caplog.text
+    assert f"Meter {COLD}: read {len(portal.all_days())} days from 5 months (Jun 2026 to Oct 2026)" in caplog.text
+    assert "stop reason: Prev Month stopped moving." in caplog.text
 
 
 async def test_reimport_service_rebuilds_history_consistently(

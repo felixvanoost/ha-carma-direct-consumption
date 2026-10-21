@@ -42,6 +42,29 @@ async def test_months_limit_and_only(session, portal):
     assert meters[0].rows[-1][0] == portal.through
 
 
+async def test_latest_month_traversal_rejects_no_progress(session, portal):
+    portal.current_works = False
+    portal.ignore_next_month = True
+
+    with pytest.raises(CarmaParseError, match="Next Month button did not advance"):
+        await client(session, portal).async_fetch(1)
+
+
+async def test_latest_month_traversal_rejects_missing_reading_date(session, portal):
+    portal.omit_reading_date = True
+
+    with pytest.raises(CarmaParseError, match="no reading date"):
+        await client(session, portal).async_fetch(1)
+
+
+async def test_latest_month_traversal_rejects_step_limit(session, portal, monkeypatch):
+    portal.current_works = False
+    monkeypatch.setattr(api, "MAX_FORWARD_STEPS", 0)
+
+    with pytest.raises(CarmaParseError, match="after 0 month steps"):
+        await client(session, portal).async_fetch(1)
+
+
 async def test_trailing_zero_readings_preserve_published_zero_days(
     session, portal, monkeypatch
 ):

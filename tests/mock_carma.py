@@ -43,6 +43,8 @@ class MockCarma:
         self.zero_days: set[date] = set()   # Days with zero usage.
         self.pad_zeros = False              # Chart pads days that have not yet been reported with 0.
         self.current_works = True           # Does 'Current Month' jump to the newest month?
+        self.ignore_next_month = False      # Next Month can fail without changing the chart.
+        self.omit_reading_date = False      # Chart can omit the reading date.
         self.fail_prev_posts = 0            # Next N 'Prev Month' posts answer HTTP 500 without moving.
         self.fail_after_moving = 0          # Next N 'Prev Month' posts move then answer HTTP 500.
         self.ignore_tab_switch = False
@@ -82,7 +84,7 @@ Please Sign In
         cat_s = ",".join(f"'{c.day:02d}/{MON[c.month - 1]}/{c.year}'" for c in cats) + "," + tail
         vals = []
         for c in cats:
-            if c <= self.through:
+            if c <= self.through or self.omit_reading_date:
                 v = self.value(idx, c)
                 vals.append(f"{{y: {v},color: '#99B7DB'}}" if c.weekday() >= 5 else str(v))
             elif self.pad_zeros:
@@ -90,8 +92,11 @@ Please Sign In
         if self.pad_zeros:
             vals.append("0.0000")
         t = self.through
-        subtitle = (f"Reading as of {calendar.day_name[t.weekday()]}, {t.day} {LONG[t.month - 1]} {t.year} "
-                    f"is {self.reading(idx):.2f} {unit}")
+        subtitle = (
+            "" if self.omit_reading_date else
+            f"Reading as of {calendar.day_name[t.weekday()]}, {t.day} {LONG[t.month - 1]} {t.year} "
+            f"is {self.reading(idx):.2f} {unit}"
+        )
         return (f"<script language='javascript'>var chart1;chart1 = new Highcharts.Chart({{ chart: {{ renderTo: 'chartContainer_0' }},"
                 f" title: {{ text: 'Daily Consumption During {LONG[month.month - 1]} {month.year} for {ADDRESS}' }},"
                 f" subtitle: {{ text: '{subtitle}' }},"
@@ -175,6 +180,7 @@ Please Sign In
             if self.fail_after_moving > 0:
                 self.fail_after_moving -= 1
                 return web.Response(status=500, text="Server Error")
-        elif "nextMonth_btn" in form and next_month(sess["month"]) <= date(TODAY.year, TODAY.month, 1):
+        elif ("nextMonth_btn" in form and not self.ignore_next_month
+              and next_month(sess["month"]) <= date(TODAY.year, TODAY.month, 1)):
             sess["month"] = next_month(sess["month"])
         return web.Response(text=self._graph_page(sess), content_type="text/html")
