@@ -6,6 +6,7 @@ import pytest
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import get_metadata, statistics_during_period
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
@@ -178,13 +179,24 @@ async def test_history_walk_is_logged(recorder_mock, enable_custom_integrations,
     assert "stopped because: Prev Month stopped moving" in caplog.text
 
 
-async def test_reimport_service_rebuilds_history_consistently(recorder_mock, enable_custom_integrations, hass, portal):
+async def test_reimport_service_rebuilds_history_consistently(
+    recorder_mock, enable_custom_integrations, hass, portal, monkeypatch
+):
     entry = await setup_entry(hass, history=2)
     assert len(await stats(hass, COLD)) < len(portal.all_days())
+    fetch_months = []
+    async_fetch = entry.runtime_data.client.async_fetch
+
+    async def track_fetch(months, only=None):
+        fetch_months.append(months.copy())
+        return await async_fetch(months, only=only)
+
+    monkeypatch.setattr(entry.runtime_data.client, "async_fetch", track_fetch)
 
     await hass.services.async_call(DOMAIN, "reimport_history", {"months": 12}, blocking=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     await async_wait_recording_done(hass)
+    assert fetch_months == [{meter_id: 12 for meter_id in ROLES}]
 
     for idx, (mid, *_) in enumerate(METERS):
         rows = await stats(hass, mid)
@@ -196,11 +208,44 @@ async def test_reimport_service_rebuilds_history_consistently(recorder_mock, ena
     await hass.services.async_call(DOMAIN, "reimport_history", {"months": 2}, blocking=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     await async_wait_recording_done(hass)
+    assert len(fetch_months) == 2
+    assert fetch_months[-1] == {meter_id: 2 for meter_id in ROLES}
     for idx, (mid, *_) in enumerate(METERS):
         rows = await stats(hass, mid)
         sums = [r["sum"] for r in rows]
         assert sums == sorted(sums) and 0 < len(rows) < len(portal.all_days())
         assert rows[-1]["sum"] == pytest.approx(sum(portal.value(idx, d) for d in portal.all_days() if d >= date(2026, 9, 1)))
+
+
+async def test_failed_reimport_preserves_existing_history(recorder_mock, enable_custom_integrations, hass, portal):
+    entry = await setup_entry(hass)
+    before = await stats(hass, COLD)
+    portal.fail_prev_posts = 99
+
+    with pytest.raises(UpdateFailed, match="HTTP 500 from the CARMA portal"):
+        await entry.runtime_data.async_reimport(12)
+    await async_wait_recording_done(hass)
+
+    assert await stats(hass, COLD) == before
+
+
+async def test_incomplete_reimport_preserves_existing_history(
+    recorder_mock, enable_custom_integrations, hass, portal, monkeypatch
+):
+    entry = await setup_entry(hass)
+    before = await stats(hass, COLD)
+    client = entry.runtime_data.client
+    async_fetch = client.async_fetch
+
+    async def omit_meter(months, only=None):
+        meters = await async_fetch(months, only=only)
+        return meters[:-1]
+
+    monkeypatch.setattr(client, "async_fetch", omit_meter)
+    with pytest.raises(UpdateFailed, match="missing meters"):
+        await entry.runtime_data.async_reimport(12)
+
+    assert await stats(hass, COLD) == before
 
 
 async def test_failed_refresh_retries_in_30_minutes(recorder_mock, enable_custom_integrations, hass, portal):

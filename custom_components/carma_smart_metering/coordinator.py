@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import date, datetime, time
@@ -62,7 +63,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         self.client = client
         self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._state: dict[str, dict] = {}
-        self._force_months: int | None = None
+        self._refresh_lock = asyncio.Lock()
 
     async def async_load_state(self) -> None:
         self._state = await self._store.async_load() or {}
@@ -76,8 +77,6 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
 
     def _months_needed(self, meter_id: str) -> int:
         history = int(self.config_entry.data.get(CONF_HISTORY_MONTHS, DEFAULT_HISTORY_MONTHS))
-        if self._force_months:
-            return self._force_months
         st = self._state.get(statistic_id(meter_id))
         if not st:
             return history
@@ -89,7 +88,17 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     async def _async_update_data(self) -> dict[str, MeterData]:
         roles = configured_roles(self.config_entry)
         wanted = {m for m, role in roles.items() if role != ROLE_SKIP}
-        months = {m: self._months_needed(m) for m in wanted}
+        async with self._refresh_lock:
+            months = {meter_id: self._months_needed(meter_id) for meter_id in wanted}
+            meters = await self._async_fetch_meters(months, wanted)
+            data = self._meter_data_by_id(meters, wanted)
+            self._import_meter_statistics(meters, roles, months)
+            await self._store.async_save(self._state)
+            return data
+
+    async def _async_fetch_meters(
+        self, months: dict[str, int], wanted: set[str]
+    ) -> list[MeterData]:
         try:
             meters = await self.client.async_fetch(months, only=wanted)
         except CarmaAuthError as err:
@@ -98,10 +107,33 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             self.update_interval = RETRY_INTERVAL
             raise UpdateFailed(str(err)) from err
         self.update_interval = UPDATE_INTERVAL
+        return meters
 
-        data: dict[str, MeterData] = {}
+    def _meter_data_by_id(
+        self, meters: list[MeterData], wanted: set[str]
+    ) -> dict[str, MeterData]:
+        data = {meter.meter_id: meter for meter in meters}
+        missing = wanted - data.keys()
+        unexpected = data.keys() - wanted
+        if missing or unexpected or len(data) != len(meters):
+            reasons = []
+            if missing:
+                reasons.append(f"missing meters: {', '.join(sorted(missing))}")
+            if unexpected:
+                reasons.append(f"unexpected meters: {', '.join(sorted(unexpected))}")
+            if len(data) != len(meters):
+                reasons.append("duplicate meter IDs")
+            self.update_interval = RETRY_INTERVAL
+            raise UpdateFailed(f"Incomplete response from CARMA portal ({'; '.join(reasons)})")
+        return data
+
+    def _import_meter_statistics(
+        self,
+        meters: list[MeterData],
+        roles: dict[str, str],
+        months: dict[str, int],
+    ) -> None:
         for meter in meters:
-            data[meter.meter_id] = meter
             level = logging.INFO if months[meter.meter_id] > REFRESH_MONTHS else logging.DEBUG
             _LOGGER.log(
                 level, "Meter %s: read %d day(s) from %d month(s) (%s to %s); stopped because: %s",
@@ -109,22 +141,30 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
                 meter.months[0].strftime("%b %Y") if meter.months else "-",
                 meter.months[-1].strftime("%b %Y") if meter.months else "-", meter.stop_reason)
             self._import_statistics(meter, roles[meter.meter_id])
-        await self._store.async_save(self._state)
-        return data
 
     async def async_reimport(self, months: int) -> None:
         """Throw away the imported statistics and read the last `months` readings again from scratch."""
 
         roles = configured_roles(self.config_entry)
-        ids = [statistic_id(m) for m, role in roles.items() if role != ROLE_SKIP]
-        _LOGGER.info("Re-importing %d month(s) of history for %d meter(s)", months, len(ids))
-        self._force_months = months
-        try:
-            get_instance(self.hass).async_clear_statistics(ids)
+        wanted = {meter_id for meter_id, role in roles.items() if role != ROLE_SKIP}
+        requested_months = {meter_id: months for meter_id in wanted}
+
+        async with self._refresh_lock:
+            _LOGGER.info("Re-importing %d month(s) of history for %d meter(s)", months, len(wanted))
+            meters = await self._async_fetch_meters(requested_months, wanted)
+            data = self._meter_data_by_id(meters, wanted)
+
+            cleared = asyncio.Event()
+            get_instance(self.hass).async_clear_statistics(
+                [statistic_id(meter_id) for meter_id in wanted],
+                on_done=lambda: self.hass.loop.call_soon_threadsafe(cleared.set),
+            )
+            await cleared.wait()
+
             self._state = {}
-            await self.async_refresh()
-        finally:
-            self._force_months = None
+            self._import_meter_statistics(meters, roles, requested_months)
+            await self._store.async_save(self._state)
+            self.async_set_updated_data(data)
 
     def _import_statistics(self, meter: MeterData, role: str) -> None:
         """Add the daily consumption as cumulative statistics (one value per local midnight)."""

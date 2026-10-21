@@ -2,7 +2,6 @@
   "domain": "carma_smart_metering",
   "name": "CARMA Smart Metering",
   "codeowners": ["@felixvanoost"],
-  "categories": ["energy.meters_monitoring"],
   "config_flow": true,
   "dependencies": ["recorder"],
   "documentation": "https://github.com/felixvanoost/ha-carma-smart-metering",
