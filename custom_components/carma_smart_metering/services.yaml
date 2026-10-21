@@ -1,0 +1,11 @@
+reimport_history:
+  fields:
+    months:
+      required: false
+      default: 24
+      example: 24
+      selector:
+        number:
+          min: 1
+          max: 120
+          mode: box

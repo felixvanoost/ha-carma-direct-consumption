@@ -1,0 +1,33 @@
+{
+    "name": "CARMA Smart Metering (Home Assistant)",
+    "image": "mcr.microsoft.com/devcontainers/python:3.14-trixie",
+    "containerEnv": {
+        "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "postCreateCommand": "python -m pip install -r requirements_test.txt",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.autopep8",
+                "ms-python.pylint",
+                "redhat.vscode-yaml",
+                "github.vscode-github-actions",
+                "streetsidesoftware.code-spell-checker",
+                "tamasfe.even-better-toml"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.testing.pytestEnabled": true,
+                "python.testing.unittestEnabled": false,
+                "python.testing.pytestArgs": ["tests"],
+                "files.exclude": {
+                    "**/__pycache__": true,
+                    "**/.pytest_cache": true
+                }
+            }
+        }
+    },
+    "remoteUser": "root"
+}

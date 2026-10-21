@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CARMA Smart Metering",
+        "description": "Sign in with the same service address and account number you use on the CARMA Direct Consumption or billing portal.",
+        "data": {
+          "service_address": "Service address",
+          "account_number": "Account number"
+        }
+      },
+      "meters": {
+        "title": "What does each meter measure?",
+        "description": "The portal does not specify what each meter measures. Check your CARMA bill to confirm.",
+        "data": {
+          "history_months": "Months of history to import (if available)."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "CARMA rejected the saved service address / account number.",
+        "data": {
+          "service_address": "Service address",
+          "account_number": "Account number"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "CARMA rejected the saved service address / account number.",
+      "cannot_connect": "Could not reach the CARMA portal, or its pages weren't in the expected format."
+    },
+    "abort": {
+      "already_configured": "This account is already set up.",
+      "reauth_successful": "Signed in again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Meter roles",
+        "description": "Change what each meter measures."
+      }
+    }
+  },
+  "services": {
+    "reimport_history": {
+      "name": "Re-import history",
+      "description": "Deletes the imported readings and reads the last N months from the portal again. This can take a few minutes.",
+      "fields": {
+        "months": {
+          "name": "Months",
+          "description": "Months of history to import (if available)."
+        }
+      }
+    }
+  }
+}
