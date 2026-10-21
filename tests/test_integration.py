@@ -9,6 +9,7 @@ from homeassistant.components.recorder.statistics import (
     statistics_during_period,
 )
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.components.recorder.common import (
@@ -28,8 +29,10 @@ from custom_components.carma_smart_metering.const import (
     CONF_UNITS,
     DOMAIN,
 )
+from custom_components.carma_smart_metering import coordinator as coordinator_module
 from custom_components.carma_smart_metering.coordinator import (
     CarmaCoordinator,
+    REIMPORT_STATE_KEY,
     statistic_id,
 )
 
@@ -445,6 +448,85 @@ async def test_incomplete_reimport_preserves_existing_history(
         await entry.runtime_data.async_reimport(12)
 
     assert await stats(hass, COLD) == before
+
+
+async def test_reimport_recovers_when_statistics_import_fails(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    portal,
+    monkeypatch,
+):
+    """Rebuild all cleared statistics on the next refresh after an import failure."""
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    add_statistics = coordinator_module.async_add_external_statistics
+    calls = 0
+
+    def fail_second_import(hass, metadata, statistics):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("simulated statistic import failure")
+        add_statistics(hass, metadata, statistics)
+
+    monkeypatch.setattr(
+        coordinator_module, "async_add_external_statistics", fail_second_import
+    )
+    with pytest.raises(RuntimeError, match="simulated statistic import failure"):
+        await coordinator.async_reimport(12)
+
+    await coordinator.async_load_state()
+    monkeypatch.setattr(
+        coordinator_module, "async_add_external_statistics", add_statistics
+    )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)
+
+    for idx, (meter_id, *_) in enumerate(METERS):
+        rows = await stats(hass, meter_id)
+        assert len(rows) == len(portal.all_days())
+        assert rows[-1]["sum"] == pytest.approx(portal.total(idx))
+
+
+async def test_reimport_recovers_when_saving_state_fails(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    portal,
+    monkeypatch,
+):
+    """Rebuild statistics again if saving completed import cursors fails."""
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    save_state = Store.async_save
+
+    async def fail_completed_save(store, state):
+        if REIMPORT_STATE_KEY not in state:
+            raise RuntimeError("simulated state save failure")
+        await save_state(store, state)
+
+    monkeypatch.setattr(Store, "async_save", fail_completed_save)
+    with pytest.raises(RuntimeError, match="simulated state save failure"):
+        await coordinator.async_reimport(12)
+
+    await coordinator.async_load_state()
+    monkeypatch.setattr(Store, "async_save", save_state)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await async_wait_recording_done(hass)
+
+    for idx, (meter_id, *_) in enumerate(METERS):
+        rows = await stats(hass, meter_id)
+        assert len(rows) == len(portal.all_days())
+        assert rows[-1]["sum"] == pytest.approx(portal.total(idx))
 
 
 async def test_failed_refresh_retries_in_30_minutes(

@@ -177,3 +177,58 @@ async def test_persistent_server_errors_give_up(session, portal):
     portal.fail_prev_posts = 3
     with pytest.raises(CarmaConnectionError, match="500"):
         await client(session, portal).async_fetch(12)
+
+
+@pytest.mark.parametrize("failure", [aiohttp.ClientConnectionError, TimeoutError])
+async def test_transient_network_error_is_retried(
+    # pylint: disable-next=redefined-outer-name
+    session,
+    portal,
+    monkeypatch,
+    failure,
+):
+    """Retry a temporary connection error or timeout and continue signing in."""
+
+    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS", (0, 0))
+    request = session.request
+    login_gets = 0
+
+    def fail_first_login_get(method, url, **kwargs):
+        nonlocal login_gets
+        if method == "GET" and url.endswith("login.aspx"):
+            login_gets += 1
+            if login_gets == 1:
+                raise failure("temporary network failure")
+        return request(method, url, **kwargs)
+
+    monkeypatch.setattr(session, "request", fail_first_login_get)
+    await client(session, portal).async_login()
+
+    assert login_gets == 2
+
+
+@pytest.mark.parametrize("failure", [aiohttp.ClientConnectionError, TimeoutError])
+async def test_connection_errors_give_up_after_bounded_retries(
+    # pylint: disable-next=redefined-outer-name
+    session,
+    portal,
+    monkeypatch,
+    failure,
+):
+    """Stop retrying after the retry limit is exceeded."""
+
+    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS", (0, 0))
+    login_gets = 0
+
+    def fail_login_get(method, url, **_kwargs):
+        nonlocal login_gets
+        if method == "GET" and url.endswith("login.aspx"):
+            login_gets += 1
+            raise failure("portal unavailable")
+        raise AssertionError("unexpected request after failed login")
+
+    monkeypatch.setattr(session, "request", fail_login_get)
+    with pytest.raises(CarmaConnectionError, match="Cannot reach the CARMA portal"):
+        await client(session, portal).async_login()
+
+    assert login_gets == 3

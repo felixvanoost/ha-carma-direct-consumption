@@ -33,6 +33,7 @@ from .const import (
 from .parser import unit_info
 
 _LOGGER = logging.getLogger(__name__)
+REIMPORT_STATE_KEY = "_reimport"
 
 try:
     # Home Assistant 2025.4 onwards.
@@ -113,6 +114,18 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         roles = configured_roles(self.config_entry)
         wanted = {m for m, role in roles.items() if role != ROLE_SKIP}
         async with self._refresh_lock:
+            pending_reimport = self._state.get(REIMPORT_STATE_KEY)
+            if pending_reimport:
+                roles = pending_reimport["roles"]
+                months = pending_reimport["months"]
+                wanted = {
+                    meter_id for meter_id, role in roles.items() if role != ROLE_SKIP
+                }
+                meters = await self._async_fetch_meters(months, wanted)
+                data = self._meter_data_by_id(meters, wanted)
+                await self._async_rebuild_statistics(meters, roles, months)
+                return data
+
             months = {meter_id: self._months_needed(meter_id) for meter_id in wanted}
             meters = await self._async_fetch_meters(months, wanted)
             data = self._meter_data_by_id(meters, wanted)
@@ -200,18 +213,37 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             )
             meters = await self._async_fetch_meters(requested_months, wanted)
             data = self._meter_data_by_id(meters, wanted)
-
-            cleared = asyncio.Event()
-            get_instance(self.hass).async_clear_statistics(
-                [statistic_id(meter_id) for meter_id in wanted],
-                on_done=lambda: self.hass.loop.call_soon_threadsafe(cleared.set),
-            )
-            await cleared.wait()
-
-            self._state = {}
-            self._import_meter_statistics(meters, roles, requested_months)
-            await self._store.async_save(self._state)
+            await self._async_rebuild_statistics(meters, roles, requested_months)
             self.async_set_updated_data(data)
+
+    async def _async_rebuild_statistics(
+        self,
+        meters: list[MeterData],
+        roles: dict[str, str],
+        months: dict[str, int],
+    ) -> None:
+        """Clear and rebuild statistics."""
+
+        marker = {"roles": roles, "months": months}
+        pending_state = {**self._state, REIMPORT_STATE_KEY: marker}
+        await self._store.async_save(pending_state)
+        self._state = {REIMPORT_STATE_KEY: marker}
+
+        cleared = asyncio.Event()
+        get_instance(self.hass).async_clear_statistics(
+            [statistic_id(meter_id) for meter_id in months],
+            on_done=lambda: self.hass.loop.call_soon_threadsafe(cleared.set),
+        )
+        await cleared.wait()
+
+        self._import_meter_statistics(meters, roles, months)
+        completed_state = {
+            key: value
+            for key, value in self._state.items()
+            if key != REIMPORT_STATE_KEY
+        }
+        await self._store.async_save(completed_state)
+        self._state = completed_state
 
     def _import_statistics(self, meter: MeterData, role: str) -> None:
         """Add the daily consumption as cumulative statistics (one value per local midnight)."""

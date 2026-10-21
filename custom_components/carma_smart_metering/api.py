@@ -28,10 +28,7 @@ TIMEOUT = aiohttp.ClientTimeout(total=60)
 
 # The CARMA portal is quite old and fragile, so we need to pace our requests.
 REQUEST_DELAY = 1.0  # Seconds between requests.
-RETRY_DELAYS = (
-    10.0,
-    5.0,
-)  # Delay before the 2nd and 3rd attempt after an HTTP 5xx error.
+REQUEST_RETRY_DELAYS = (2.0, 5.0)
 MAX_EMPTY_MONTHS = 3  # Stop walking back after this many months in a row without data.
 MAX_FORWARD_STEPS = 12  # Walk forward at most this far to get to the newest month.
 
@@ -119,7 +116,7 @@ class CarmaClient:
         if self._made_request:
             await asyncio.sleep(REQUEST_DELAY)
         self._made_request = True
-        for delay in (*RETRY_DELAYS, None):
+        for attempt, delay in enumerate((*REQUEST_RETRY_DELAYS, None)):
             try:
                 async with self._session.request(
                     method, url, data=data, timeout=TIMEOUT
@@ -133,9 +130,17 @@ class CarmaClient:
                     f"HTTP {err.status} from the CARMA portal"
                 ) from err
             except (aiohttp.ClientError, TimeoutError) as err:
-                raise CarmaConnectionError(
-                    f"Cannot reach the CARMA portal: {err}"
-                ) from err
+                if attempt >= len(REQUEST_RETRY_DELAYS):
+                    raise CarmaConnectionError(
+                        f"Cannot reach the CARMA portal: {err}"
+                    ) from err
+                connection_delay = REQUEST_RETRY_DELAYS[attempt]
+                _LOGGER.debug(
+                    "Connection to the CARMA portal failed. Retrying in %.0f seconds.",
+                    connection_delay,
+                )
+                await asyncio.sleep(connection_delay)
+                continue
             _LOGGER.debug(
                 "CARMA portal returned a server error. Retrying in %.0f seconds.", delay
             )

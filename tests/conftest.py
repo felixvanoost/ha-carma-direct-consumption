@@ -21,7 +21,7 @@ async def portal(socket_enabled, monkeypatch):
     await server.start_server()
     monkeypatch.setattr(const, "BASE_URL", str(server.make_url("/portal/")))
     monkeypatch.setattr(api, "REQUEST_DELAY", 0)
-    monkeypatch.setattr(api, "RETRY_DELAYS", (0, 0))
+    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS", (0, 0))
     try:
         yield mock
     finally:
