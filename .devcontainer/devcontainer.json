@@ -1,5 +1,5 @@
 {
-    "name": "CARMA Smart Metering (Home Assistant)",
+    "name": "CARMA Direct Consumption",
     "image": "mcr.microsoft.com/devcontainers/python:3.14-trixie",
     "containerEnv": {
         "PYTHONDONTWRITEBYTECODE": "1"

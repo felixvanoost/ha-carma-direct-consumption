@@ -1,4 +1,4 @@
-"""CARMA Smart Metering integration."""
+"""CARMA Direct Consumption integration."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
         ]
         if not entries:
             raise ServiceValidationError(
-                "The CARMA Smart Metering integration is not loaded"
+                "The CARMA Direct Consumption integration is not loaded"
             )
         for entry in entries:
             entry.async_create_background_task(

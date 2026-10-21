@@ -2,7 +2,7 @@
 
 import pytest
 
-from custom_components.carma_smart_metering.parser import ChartParseError, parse_chart
+from custom_components.carma_direct_consumption.parser import ChartParseError, parse_chart
 
 
 def chart_html(categories: str, values: str) -> str:

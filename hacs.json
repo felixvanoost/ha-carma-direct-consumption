@@ -1,5 +1,5 @@
 {
-  "name": "CARMA Smart Metering",
+  "name": "CARMA Direct Consumption",
   "homeassistant": "2025.4.0",
   "render_readme": true
 }

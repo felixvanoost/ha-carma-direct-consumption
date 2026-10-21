@@ -5,8 +5,8 @@ from datetime import date, datetime, timezone
 import aiohttp
 import pytest
 
-from custom_components.carma_smart_metering import api, const
-from custom_components.carma_smart_metering.api import (
+from custom_components.carma_direct_consumption import api, const
+from custom_components.carma_direct_consumption.api import (
     CarmaAuthError,
     CarmaClient,
     CarmaConnectionError,

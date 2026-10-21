@@ -3,7 +3,7 @@
 import pytest
 from aiohttp.test_utils import TestServer
 
-from custom_components.carma_smart_metering import api, const
+from custom_components.carma_direct_consumption import api, const
 
 from .mock_carma import MockCarma
 

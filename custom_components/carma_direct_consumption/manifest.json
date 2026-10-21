@@ -1,0 +1,13 @@
+{
+  "domain": "carma_direct_consumption",
+  "name": "CARMA Direct Consumption",
+  "codeowners": ["@felixvanoost"],
+  "config_flow": true,
+  "dependencies": ["recorder"],
+  "documentation": "https://github.com/felixvanoost/ha-carma-direct-consumption",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/felixvanoost/ha-carma-direct-consumption/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

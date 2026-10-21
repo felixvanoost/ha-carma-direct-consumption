@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "CARMA Smart Metering",
+        "title": "CARMA Direct Consumption",
         "description": "Sign in with the same service address and account number you use on the CARMA Direct Consumption or billing portal.",
         "data": {
           "service_address": "Service address",

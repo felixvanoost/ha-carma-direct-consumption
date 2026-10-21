@@ -20,8 +20,8 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
 
-from custom_components.carma_smart_metering import const
-from custom_components.carma_smart_metering.const import (
+from custom_components.carma_direct_consumption import const
+from custom_components.carma_direct_consumption.const import (
     CONF_ACCOUNT,
     CONF_ADDRESS,
     CONF_HISTORY_MONTHS,
@@ -29,8 +29,8 @@ from custom_components.carma_smart_metering.const import (
     CONF_UNITS,
     DOMAIN,
 )
-from custom_components.carma_smart_metering import coordinator as coordinator_module
-from custom_components.carma_smart_metering.coordinator import (
+from custom_components.carma_direct_consumption import coordinator as coordinator_module
+from custom_components.carma_direct_consumption.coordinator import (
     CarmaCoordinator,
     REIMPORT_STATE_KEY,
     statistic_id,

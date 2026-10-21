@@ -1,8 +1,8 @@
-"""Constants for the CARMA Smart Metering integration."""
+"""Constants for the CARMA Direct Consumption integration."""
 
 from datetime import timedelta
 
-DOMAIN = "carma_smart_metering"
+DOMAIN = "carma_direct_consumption"
 
 BASE_URL = "http://www.carmasmartmetering.com/DirectConsumptionDev/"
 
