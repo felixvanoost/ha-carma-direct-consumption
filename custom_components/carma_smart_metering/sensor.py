@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import UnitOfEnergy, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -17,14 +21,20 @@ from .const import DOMAIN, ROLE_LABELS, ROLE_SKIP, WATER_ROLES
 from .coordinator import CarmaConfigEntry, CarmaCoordinator, configured_roles
 from .parser import unit_info
 
-_HA_UNITS = {"m³": UnitOfVolume.CUBIC_METERS, "gal": UnitOfVolume.GALLONS, "kWh": UnitOfEnergy.KILO_WATT_HOUR}
+_HA_UNITS = {
+    "m³": UnitOfVolume.CUBIC_METERS,
+    "gal": UnitOfVolume.GALLONS,
+    "kWh": UnitOfEnergy.KILO_WATT_HOUR,
+}
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     entry: CarmaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Create the selected meter sensors."""
+
     coordinator = entry.runtime_data
     entities: list[SensorEntity] = []
     for meter_id, role in configured_roles(entry).items():
@@ -37,7 +47,14 @@ async def async_setup_entry(
 class _CarmaSensor(CoordinatorEntity[CarmaCoordinator], SensorEntity):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: CarmaCoordinator, entry: CarmaConfigEntry, meter_id: str, role: str, key: str) -> None:
+    def __init__(
+        self,
+        coordinator: CarmaCoordinator,
+        entry: CarmaConfigEntry,
+        meter_id: str,
+        role: str,
+        key: str,
+    ) -> None:
         super().__init__(coordinator)
         self._meter_id = meter_id
         self._role = role
@@ -90,7 +107,9 @@ class CarmaLastDaySensor(_CarmaSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        day: date | None = self._meter.rows[-1][0] if self._meter and self._meter.rows else None
+        day: date | None = (
+            self._meter.rows[-1][0] if self._meter and self._meter.rows else None
+        )
         return {"date": day.isoformat()} if day else {}
 
 

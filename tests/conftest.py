@@ -7,11 +7,15 @@ from custom_components.carma_smart_metering import api, const
 
 from .mock_carma import MockCarma
 
+# pylint: disable-next=invalid-name
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
 @pytest.fixture
+# pylint: disable-next=unused-argument
 async def portal(socket_enabled, monkeypatch):
+    """Run a mock CARMA portal and patch request pacing."""
+
     mock = MockCarma()
     server = TestServer(mock.make_app())
     await server.start_server()

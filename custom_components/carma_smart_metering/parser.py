@@ -9,8 +9,26 @@ from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
 
-_MONTHS = {m: i for i, m in enumerate(
-    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
+_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        [
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+        ],
+        start=1,
+    )
+}
 
 
 def _month_number(name: str) -> int | None:
@@ -29,6 +47,8 @@ class ParsedForm:
 
 
 class _FormParser(HTMLParser):
+    """Extract form fields required for WebForms submissions."""
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.form = ParsedForm()
@@ -48,7 +68,11 @@ class _FormParser(HTMLParser):
         elif tag == "input":
             self._input(a)
         elif tag == "select":
-            self._sel_name, self._sel_default, self._sel_first = a.get("name"), None, None
+            self._sel_name, self._sel_default, self._sel_first = (
+                a.get("name"),
+                None,
+                None,
+            )
         elif tag == "option" and self._sel_name:
             value = a.get("value", "")
             if self._sel_first is None:
@@ -59,7 +83,10 @@ class _FormParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "select" and self._sel_name:
             self.form.fields[self._sel_name] = (
-                self._sel_default if self._sel_default is not None else (self._sel_first or ""))
+                self._sel_default
+                if self._sel_default is not None
+                else (self._sel_first or "")
+            )
             self._sel_name = None
         elif tag == "form":
             self._in_form = False
@@ -81,6 +108,8 @@ class _FormParser(HTMLParser):
 
 
 def parse_form(html: str) -> ParsedForm:
+    """Parse the first form on an HTML page."""
+
     parser = _FormParser()
     parser.feed(html)
     return parser.form
@@ -89,19 +118,27 @@ def parse_form(html: str) -> ParsedForm:
 def parse_tabs(html: str) -> list[tuple[int, str]]:
     """[(tab index, meter number)] from the tab headers."""
 
-    found = re.findall(r'id="__tab_tabMeters_tabMeter(\d+)"[^>]*>\s*<span>([^<]*)</span>', html)
+    found = re.findall(
+        r'id="__tab_tabMeters_tabMeter(\d+)"[^>]*>\s*<span>([^<]*)</span>', html
+    )
     return sorted((int(i), name.strip()) for i, name in found)
 
 
 def active_tab(form: ParsedForm) -> int:
+    """Return the currently selected meter tab."""
+
     try:
-        return int(json.loads(form.fields["tabMeters_ClientState"]).get("ActiveTabIndex", 0))
+        return int(
+            json.loads(form.fields["tabMeters_ClientState"]).get("ActiveTabIndex", 0)
+        )
     except (KeyError, ValueError, TypeError):
         return 0
 
 
 @dataclass
 class Chart:
+    """Parsed daily readings and meter register information for a chart."""
+
     title: str
     month: date
     unit_raw: str
@@ -120,9 +157,19 @@ def parse_chart(html: str) -> Chart | None:
     m = re.search(r"new Highcharts\.Chart\(\{(.*?)\}\);?\s*</script>", html, re.S)
     if not m:
         return None
-    cfg = m.group(1)
+    config = m.group(1)
+    title, month, unit_raw = _parse_chart_header(config)
+    reading, reading_date = _parse_reading(config)
+    categories = _parse_categories(config)
+    values = _parse_values(config)
+    rows = _chart_rows(categories, values, month, reading_date)
+    return Chart(title, month, unit_raw, rows, reading, reading_date)
 
-    title = _first(r"title:\s*\{\s*text:\s*'([^']*)'", cfg)
+
+def _parse_chart_header(config: str) -> tuple[str, date, str]:
+    """Extract the title, month, and unit from a chart configuration."""
+
+    title = _first(r"title:\s*\{\s*text:\s*'([^']*)'", config)
     if not title:
         raise ChartParseError("Chart title is missing")
     mm = re.search(r"During\s+([A-Za-z]+)\s+(\d{4})", title)
@@ -133,13 +180,20 @@ def parse_chart(html: str) -> Chart | None:
     except ValueError as err:
         raise ChartParseError("Chart title has an invalid year") from err
 
-    unit_raw = _first(r"yAxis:\s*\{\s*title:\s*\{\s*text:\s*'([^']*)'", cfg)
+    unit_raw = _first(r"yAxis:\s*\{\s*title:\s*\{\s*text:\s*'([^']*)'", config)
     if not unit_raw:
         raise ChartParseError("Chart unit is missing")
+    return title, month, unit_raw
 
+
+def _parse_reading(config: str) -> tuple[float | None, date | None]:
+    """Extract and validate the meter reading and its reported date."""
     reading = reading_date = None
-    rm = re.search(r"Reading as of\s+(?:[A-Za-z]+,\s*)?(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\s+is\s+(-?[\d,]*\.?\d+)",
-                   _first(r"subtitle:\s*\{\s*text:\s*'([^']*)'", cfg))
+    rm = re.search(
+        r"Reading as of\s+(?:[A-Za-z]+,\s*)?(\d{1,2})\s+([A-Za-z]+)\s+"
+        r"(\d{4})\s+is\s+(-?[\d,]*\.?\d+)",
+        _first(r"subtitle:\s*\{\s*text:\s*'([^']*)'", config),
+    )
     if rm:
         reading = float(rm.group(4).replace(",", ""))
         n = _month_number(rm.group(2))
@@ -149,60 +203,79 @@ def parse_chart(html: str) -> Chart | None:
             reading_date = date(int(rm.group(3)), n, int(rm.group(1)))
         except ValueError as err:
             raise ChartParseError("Invalid reading date") from err
+    return reading, reading_date
 
-    categories = re.search(r"categories:\s*\[(.*?)\]", cfg, re.S)
+
+def _parse_categories(config: str) -> list[date | None]:
+    """Extract and validate chart categories."""
+
+    categories = re.search(r"categories:\s*\[(.*?)\]", config, re.S)
     if not categories or not re.fullmatch(
         r"\s*(?:'[^']*'\s*(?:,\s*'[^']*'\s*)*)?\s*", categories.group(1)
     ):
         raise ChartParseError("Chart categories are missing or malformed")
     cats = re.findall(r"'([^']*)'", categories.group(1))
+    parsed: list[date | None] = []
+    seen_days: set[date] = set()
+    for index, category in enumerate(cats):
+        if not category:
+            if index != len(cats) - 1:
+                raise ChartParseError("Chart contains an invalid blank category")
+            parsed.append(None)
+            continue
+        day = _parse_category(category)
+        if day is None:
+            raise ChartParseError(f"Invalid chart category: {category!r}")
+        if day in seen_days:
+            raise ChartParseError(f"Duplicate chart category: {category!r}")
+        seen_days.add(day)
+        parsed.append(day)
+    return parsed
+
+
+def _parse_values(config: str) -> list[float | None]:
+    """Extract and validate daily consumption values."""
 
     # First series = 'Daily Consumption'.
     # Values are plain numbers or {y: n, color: ...} for weekend shading.
-    series = cfg.split("series:", 1)[1] if "series:" in cfg else ""
+    series = config.split("series:", 1)[1] if "series:" in config else ""
     data = re.search(r"data:\s*\[(.*?)\]", series, re.S)
     if not data:
         raise ChartParseError("Daily consumption data is missing or malformed")
-    values = [_parse_chart_value(item) for item in _split_array(data.group(1))]
-    parsed_categories: list[date | None] = []
-    seen_days: set[date] = set()
-    for index, cat in enumerate(cats):
-        if not cat:
-            if index != len(cats) - 1:
-                raise ChartParseError("Chart contains an invalid blank category")
-            parsed_categories.append(None)
-            continue
-        day = _parse_category(cat)
-        if day is None:
-            raise ChartParseError(f"Invalid chart category: {cat!r}")
-        if day in seen_days:
-            raise ChartParseError(f"Duplicate chart category: {cat!r}")
-        seen_days.add(day)
-        parsed_categories.append(day)
+    return [_parse_chart_value(item) for item in _split_array(data.group(1))]
 
-    if len(values) > len(cats):
+
+def _chart_rows(
+    categories: list[date | None],
+    values: list[float | None],
+    month: date,
+    reading_date: date | None,
+) -> list[tuple[date, float]]:
+    """Pair chart categories with readings."""
+
+    if len(values) > len(categories):
         raise ChartParseError(
-            f"Chart has {len(cats)} categories but {len(values)} daily values"
+            f"Chart has {len(categories)} categories but {len(values)} daily values"
         )
-    for index in range(len(values), len(cats)):
-        day = parsed_categories[index]
+    for index in range(len(values), len(categories)):
+        day = categories[index]
         if day is not None and (reading_date is None or day <= reading_date):
             raise ChartParseError(
-                f"Chart has {len(cats)} categories but {len(values)} daily values"
+                f"Chart has {len(categories)} categories but {len(values)} daily values"
             )
 
     rows: list[tuple[date, float]] = []
-    for day, value in zip(parsed_categories, values):
+    for day, value in zip(categories, values):
         if day is None:
             if value not in (None, 0.0):
                 raise ChartParseError("Chart contains an invalid blank category")
             continue
         if value is None:
             continue
-        if month is not None and (day.year, day.month) != (month.year, month.month):
+        if (day.year, day.month) != (month.year, month.month):
             continue
         rows.append((day, value))
-    return Chart(title, month, unit_raw, rows, reading, reading_date)
+    return rows
 
 
 def _split_array(value: str) -> list[str]:
@@ -243,7 +316,9 @@ def _parse_chart_value(item: str) -> float | None:
         return None
     match = re.fullmatch(rf"({number})", item)
     if not match:
-        match = re.fullmatch(rf"\{{\s*y\s*:\s*({number})(?:\s*,[^{{}}]*)?\s*\}}", item, re.S)
+        match = re.fullmatch(
+            rf"\{{\s*y\s*:\s*({number})(?:\s*,[^{{}}]*)?\s*\}}", item, re.S
+        )
     if not match:
         raise ChartParseError(f"Invalid daily consumption value: {item!r}")
     value = float(match.group(1) if item.startswith("{") else item)

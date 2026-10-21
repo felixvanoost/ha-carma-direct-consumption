@@ -6,6 +6,8 @@ from custom_components.carma_smart_metering.parser import ChartParseError, parse
 
 
 def chart_html(categories: str, values: str) -> str:
+    """Build a minimal Highcharts chart snippet for parser tests."""
+
     return (
         "<script>chart = new Highcharts.Chart({"
         "title: { text: 'Daily Consumption During October 2026 for Test' },"
@@ -17,6 +19,8 @@ def chart_html(categories: str, values: str) -> str:
 
 
 def test_parse_chart_validates_aligned_values_and_preserves_nulls():
+    """Keep valid values paired with their categories and ignore nulls."""
+
     chart = parse_chart(
         chart_html(
             "'01/Oct/2026','02/Oct/2026',''",
@@ -40,5 +44,7 @@ def test_parse_chart_validates_aligned_values_and_preserves_nulls():
     ],
 )
 def test_parse_chart_rejects_malformed_data(categories, values, error):
+    """Reject malformed chart categories and readings."""
+
     with pytest.raises(ChartParseError, match=error):
         parse_chart(chart_html(categories, values))

@@ -34,7 +34,7 @@ from .parser import unit_info
 
 _LOGGER = logging.getLogger(__name__)
 
-try:  
+try:
     # Home Assistant 2025.4 onwards.
     from homeassistant.components.recorder.models import StatisticMeanType
 
@@ -46,10 +46,14 @@ type CarmaConfigEntry = ConfigEntry["CarmaCoordinator"]
 
 
 def statistic_id(meter_id: str) -> str:
+    """Return the stable Recorder statistic ID for a meter."""
+
     return f"{DOMAIN}:meter_{re.sub(r'[^a-z0-9]+', '_', meter_id.lower()).strip('_')}"
 
 
 def configured_roles(entry: ConfigEntry) -> dict[str, str]:
+    """Return the configured meter roles."""
+
     return entry.options.get(CONF_METERS, entry.data[CONF_METERS])
 
 
@@ -58,25 +62,43 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
 
     config_entry: CarmaConfigEntry
 
-    def __init__(self, hass: HomeAssistant, entry: CarmaConfigEntry, client: CarmaClient) -> None:
-        super().__init__(hass, _LOGGER, config_entry=entry, name=DOMAIN, update_interval=UPDATE_INTERVAL)
+    def __init__(
+        self, hass: HomeAssistant, entry: CarmaConfigEntry, client: CarmaClient
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=DOMAIN,
+            update_interval=UPDATE_INTERVAL,
+        )
         self.client = client
         self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._state: dict[str, dict] = {}
         self._refresh_lock = asyncio.Lock()
 
     async def async_load_state(self) -> None:
+        """Load saved statistics import cursors."""
+
         self._state = await self._store.async_load() or {}
 
     @property
     def is_first_run(self) -> bool:
+        """Whether the integration has no saved import progress."""
+
         return not self._state
 
     def _today(self) -> date:
+        """Return today's date in the configured time zone."""
+
         return dt_util.now().date()
 
     def _months_needed(self, meter_id: str) -> int:
-        history = int(self.config_entry.data.get(CONF_HISTORY_MONTHS, DEFAULT_HISTORY_MONTHS))
+        """Choose a history depth that catches up the meter while retaining overlap."""
+
+        history = int(
+            self.config_entry.data.get(CONF_HISTORY_MONTHS, DEFAULT_HISTORY_MONTHS)
+        )
         st = self._state.get(statistic_id(meter_id))
         if not st:
             return history
@@ -86,6 +108,8 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         return min(max(REFRESH_MONTHS, behind + 2), max(history, REFRESH_MONTHS))
 
     async def _async_update_data(self) -> dict[str, MeterData]:
+        """Fetch readings, import statistics, and return the latest meter data."""
+
         roles = configured_roles(self.config_entry)
         wanted = {m for m, role in roles.items() if role != ROLE_SKIP}
         async with self._refresh_lock:
@@ -124,7 +148,9 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             if len(data) != len(meters):
                 reasons.append("duplicate meter IDs")
             self.update_interval = RETRY_INTERVAL
-            raise UpdateFailed(f"Incomplete response from CARMA portal ({'; '.join(reasons)})")
+            raise UpdateFailed(
+                f"Incomplete response from CARMA portal ({'; '.join(reasons)})"
+            )
         return data
 
     def _import_meter_statistics(
@@ -134,12 +160,16 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         months: dict[str, int],
     ) -> None:
         for meter in meters:
-            level = logging.INFO if months[meter.meter_id] > REFRESH_MONTHS else logging.DEBUG
+            level = (
+                logging.INFO
+                if months[meter.meter_id] > REFRESH_MONTHS
+                else logging.DEBUG
+            )
             day_label = "day" if len(meter.rows) == 1 else "days"
             month_label = "month" if len(meter.months) == 1 else "months"
             _LOGGER.log(
                 level,
-                "Meter %s: read %d %s from %d %s (%s to %s). Stop reason: %s.",
+                "Meter %s: read %d %s from %d %s (%s to %s); stop reason: %s.",
                 meter.meter_id,
                 len(meter.rows),
                 day_label,
@@ -152,7 +182,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             self._import_statistics(meter, roles[meter.meter_id])
 
     async def async_reimport(self, months: int) -> None:
-        """Throw away the imported statistics and read the last `months` readings again from scratch."""
+        """Clear imported statistics and rebuild them from recent portal readings."""
 
         roles = configured_roles(self.config_entry)
         wanted = {meter_id for meter_id, role in roles.items() if role != ROLE_SKIP}
@@ -163,7 +193,10 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             meter_label = "meter" if len(wanted) == 1 else "meters"
             _LOGGER.info(
                 "Re-importing %d %s of history for %d %s.",
-                months, month_label, len(wanted), meter_label,
+                months,
+                month_label,
+                len(wanted),
+                meter_label,
             )
             meters = await self._async_fetch_meters(requested_months, wanted)
             data = self._meter_data_by_id(meters, wanted)
@@ -189,25 +222,68 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         sum_before: float = st.get("sum_before", 0.0)
 
         today = self._today()
-        new = [(d, v) for d, v in meter.rows if d <= today and (cursor is None or d.isoformat() >= cursor)]
+        new = [
+            (d, v)
+            for d, v in meter.rows
+            if d <= today and (cursor is None or d.isoformat() >= cursor)
+        ]
         if not new:
-            if cursor and meter.rows and cursor > meter.rows[-1][0].isoformat():
-                _LOGGER.warning(
-                    "Meter %s: saved import cursor (%s) is later than the newest date returned by "
-                    "the CARMA portal (%s). Run the 'Re-import history' action to rebuild statistics.",
-                    meter.meter_id, cursor, meter.rows[-1][0])
+            self._warn_if_cursor_is_ahead(meter, cursor)
             return
 
-        tz = dt_util.get_default_time_zone()
+        stats = self._statistics_for_readings(new, sum_before)
+        metadata = self._statistic_metadata(meter, role, stat_id)
+        async_add_external_statistics(self.hass, metadata, stats)
+        self._save_import_cursor(stat_id, new, sum_before)
+        day_label = "day" if len(stats) == 1 else "days"
+        _LOGGER.debug(
+            "Imported statistics for %d %s for meter %s.",
+            len(stats),
+            day_label,
+            meter.meter_id,
+        )
+
+    @staticmethod
+    def _warn_if_cursor_is_ahead(meter: MeterData, cursor: str | None) -> None:
+        """Warn when saved progress is later than data returned by the portal."""
+
+        if cursor and meter.rows and cursor > meter.rows[-1][0].isoformat():
+            _LOGGER.warning(
+                "Meter %s: saved import cursor (%s) is later than the newest date returned by "
+                "the CARMA portal (%s). Run the 'Re-import history' action to rebuild statistics.",
+                meter.meter_id,
+                cursor,
+                meter.rows[-1][0],
+            )
+
+    @staticmethod
+    def _statistics_for_readings(
+        readings: list[tuple[date, float]], sum_before: float
+    ) -> list[StatisticData]:
+        """Create cumulative Recorder statistics for daily readings."""
+
+        timezone = dt_util.get_default_time_zone()
         running = sum_before
-        stats: list[StatisticData] = []
-        for day, value in new:
+        statistics = []
+        for day, value in readings:
             running = round(running + value, 6)
-            stats.append(StatisticData(start=datetime.combine(day, time.min, tzinfo=tz),
-                                       state=running, sum=running))
+            statistics.append(
+                StatisticData(
+                    start=datetime.combine(day, time.min, tzinfo=timezone),
+                    state=running,
+                    sum=running,
+                )
+            )
+        return statistics
+
+    @staticmethod
+    def _statistic_metadata(
+        meter: MeterData, role: str, stat_id: str
+    ) -> StatisticMetaData:
+        """Build Recorder metadata for a meter's external statistics."""
 
         unit, unit_class, _ = unit_info(meter.unit_raw)
-        metadata = StatisticMetaData(
+        return StatisticMetaData(
             **_NO_MEAN,
             has_sum=True,
             name=f"{ROLE_LABELS.get(role, role)} (meter {meter.meter_id})",
@@ -216,19 +292,24 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             unit_class=unit_class,
             unit_of_measurement=unit,
         )
-        async_add_external_statistics(self.hass, metadata, stats)
 
-        # Keep the newest OVERLAP_DAYS 'open'.
-        idx = max(0, len(new) - OVERLAP_DAYS)
+    def _save_import_cursor(
+        self,
+        stat_id: str,
+        readings: list[tuple[date, float]],
+        sum_before: float,
+    ) -> None:
+        """Keep the newest readings open for possible portal revisions."""
+
+        index = max(0, len(readings) - OVERLAP_DAYS)
         self._state[stat_id] = {
-            "cursor": new[idx][0].isoformat(),
-            "sum_before": round(sum_before + sum(v for _, v in new[:idx]), 6),
+            "cursor": readings[index][0].isoformat(),
+            "sum_before": round(
+                sum_before + sum(value for _, value in readings[:index]), 6
+            ),
         }
-        day_label = "day" if len(stats) == 1 else "days"
-        _LOGGER.debug(
-            "Imported statistics for %d %s for meter %s.",
-            len(stats), day_label, meter.meter_id,
-        )
 
     async def async_remove_state(self) -> None:
+        """Remove saved import progress."""
+
         await self._store.async_remove()

@@ -1,4 +1,5 @@
 """Constants for the CARMA Smart Metering integration."""
+
 from datetime import timedelta
 
 DOMAIN = "carma_smart_metering"
@@ -28,8 +29,11 @@ WATER_ROLES = {ROLE_COLD, ROLE_HOT}
 
 DEFAULT_HISTORY_MONTHS = 24
 REFRESH_MONTHS = 2
-UPDATE_INTERVAL = timedelta(hours=12)   # The portal only updates daily, so a faster interval is not useful.
+UPDATE_INTERVAL = timedelta(
+    hours=12
+)  # Note: the portal only updates readings once per day.
 RETRY_INTERVAL = timedelta(minutes=30)  # Retry interval after a failed refresh.
 
 SERVICE_REIMPORT = "reimport_history"
-OVERLAP_DAYS = 3  # Re-import the readings for the X newest days each time because the portal may revise them.
+# Re-import the newest days on each refresh because the portal may revise readings.
+OVERLAP_DAYS = 3

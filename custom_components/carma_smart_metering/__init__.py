@@ -15,26 +15,49 @@ from .api import create_client
 from .const import CONF_ACCOUNT, CONF_ADDRESS, DOMAIN, SERVICE_REIMPORT
 from .coordinator import CarmaConfigEntry, CarmaCoordinator
 
+# Home Assistant requires this integration constant to use uppercase naming.
+# pylint: disable-next=invalid-name
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = ["sensor"]
-_REIMPORT_SCHEMA = vol.Schema({vol.Optional("months", default=24): vol.All(vol.Coerce(int), vol.Range(min=1, max=120))})
+_REIMPORT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("months", default=24): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=120)
+        )
+    }
+)
 _AUTO_RELOAD = hasattr(config_entries, "OptionsFlowWithReload")
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
+    """Register integration services."""
+
     async def _reimport(call: ServiceCall) -> None:
-        entries = [e for e in hass.config_entries.async_entries(DOMAIN) if e.state is ConfigEntryState.LOADED]
+        entries = [
+            e
+            for e in hass.config_entries.async_entries(DOMAIN)
+            if e.state is ConfigEntryState.LOADED
+        ]
         if not entries:
-            raise ServiceValidationError("The CARMA Smart Metering integration is not loaded")
+            raise ServiceValidationError(
+                "The CARMA Smart Metering integration is not loaded"
+            )
         for entry in entries:
             entry.async_create_background_task(
-                hass, entry.runtime_data.async_reimport(call.data["months"]), f"{DOMAIN} reimport")
+                hass,
+                entry.runtime_data.async_reimport(call.data["months"]),
+                f"{DOMAIN} reimport",
+            )
 
-    hass.services.async_register(DOMAIN, SERVICE_REIMPORT, _reimport, schema=_REIMPORT_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, SERVICE_REIMPORT, _reimport, schema=_REIMPORT_SCHEMA
+    )
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> bool:
+    """Set up a configured CARMA account."""
+
     client = create_client(hass, entry.data[CONF_ADDRESS], entry.data[CONF_ACCOUNT])
     coordinator = CarmaCoordinator(hass, entry, client)
     await coordinator.async_load_state()
@@ -43,7 +66,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> boo
     if coordinator.is_first_run:
         # The first run can read several years of history, so execute it in the background.
         coordinator.data = {}
-        entry.async_create_background_task(hass, coordinator.async_refresh(), f"{DOMAIN} first import")
+        entry.async_create_background_task(
+            hass, coordinator.async_refresh(), f"{DOMAIN} first import"
+        )
     else:
         await coordinator.async_config_entry_first_refresh()
 
@@ -54,10 +79,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> boo
 
 
 async def _async_reload(hass: HomeAssistant, entry: CarmaConfigEntry) -> None:
+    """Reload the integration after its options change."""
+
     await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> bool:
+    """Unload the sensor platform."""
+
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
