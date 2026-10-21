@@ -14,7 +14,7 @@ import aiohttp
 from homeassistant.util import dt as dt_util
 
 from . import const
-from .parser import active_tab, parse_chart, parse_form, parse_tabs
+from .parser import Chart, ChartParseError, active_tab, parse_chart, parse_form, parse_tabs
 
 _LOGGER = logging.getLogger(__name__)
 TIMEOUT = aiohttp.ClientTimeout(total=60)
@@ -40,6 +40,16 @@ class CarmaConnectionError(CarmaError):
 
 class CarmaParseError(CarmaError):
     """The portal's pages could not be parsed."""
+
+
+def _parse_chart(html: str) -> Chart:
+    try:
+        chart = parse_chart(html)
+    except ChartParseError as err:
+        raise CarmaParseError(str(err)) from err
+    if chart is None:
+        raise CarmaParseError("No chart found on the portal page")
+    return chart
 
 
 @dataclass
@@ -173,14 +183,14 @@ class CarmaClient:
 
         html = await self._press(html, "currMonth_btn")
         for _ in range(MAX_FORWARD_STEPS):
-            chart = parse_chart(html)
-            if not chart or not chart.month or not chart.reading_date:
+            chart = _parse_chart(html)
+            if not chart.reading_date:
                 break
             if chart.month >= chart.reading_date.replace(day=1):
                 break
             nxt = await self._press(html, "nextMonth_btn")
-            moved = parse_chart(nxt)
-            if not moved or moved.month == chart.month:
+            moved = _parse_chart(nxt)
+            if moved.month == chart.month:
                 break
             html = nxt
         return html
@@ -194,39 +204,37 @@ class CarmaClient:
         empty_run = 0
         stop = f"reached the requested {depth} month(s)"
         for step in range(max(depth, 1)):
-            chart = parse_chart(html)
-            month = chart.month if chart else None
-            if month is not None and month in seen:
+            chart = _parse_chart(html)
+            month = chart.month
+            if month in seen:
                 stop = "Prev Month stopped moving"
                 break
-            if chart is None or not chart.rows:
+            if not chart.rows:
                 empty_run += 1
                 if empty_run >= MAX_EMPTY_MONTHS:
                     stop = f"{MAX_EMPTY_MONTHS} months in a row with no data"
                     break
             else:
                 empty_run = 0
-            if chart is not None and month is not None:
-                seen.add(month)
-                rows.update(chart.rows)
-                if not meter.unit_raw:
-                    meter.title, meter.unit_raw = chart.title, chart.unit_raw
-                if meter.reading is None:
-                    meter.reading, meter.reading_date = chart.reading, chart.reading_date
+            seen.add(month)
+            rows.update(chart.rows)
+            if not meter.unit_raw:
+                meter.title, meter.unit_raw = chart.title, chart.unit_raw
+            if meter.reading is None:
+                meter.reading, meter.reading_date = chart.reading, chart.reading_date
             if step < depth - 1:
                 html = await self._press(html, "prevMonth_btn")
-                if month is not None:
-                    for _ in range(2):
-                        c = parse_chart(html)
-                        if c and c.month and c.month < _prev_month(month):
-                            html = await self._press(html, "nextMonth_btn")
-                        else:
-                            break
+                for _ in range(2):
+                    c = _parse_chart(html)
+                    if c.month < _prev_month(month):
+                        html = await self._press(html, "nextMonth_btn")
+                    else:
+                        break
         if not seen:
             raise CarmaParseError(f"No chart found for meter {number}")
         meter.rows = sorted(rows.items())
 
-        # The portal pads unpublished days with zeroes. Discard padded future dates.
+        # The portal pads unpublished days with zeroes. Discard padded dates that are in the future.
         today = dt_util.now().date()
         latest_reported_day = min(today, meter.reading_date) if meter.reading_date else today
         while (

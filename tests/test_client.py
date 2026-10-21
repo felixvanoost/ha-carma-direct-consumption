@@ -89,6 +89,11 @@ async def test_silent_tab_switch_failure_is_refused(session, portal):
         await client(session, portal).async_fetch(2)
 
 
+def test_missing_chart_is_a_parse_error():
+    with pytest.raises(CarmaParseError, match="No chart found"):
+        api._parse_chart("<html></html>")
+
+
 async def test_persistent_server_errors_give_up(session, portal):
     portal.fail_prev_posts = 3
     with pytest.raises(CarmaConnectionError, match="500"):
