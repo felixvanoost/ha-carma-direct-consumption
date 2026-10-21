@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar
 import json
 import secrets
-from datetime import date
+from datetime import date, timedelta
 from html import escape
 
 from aiohttp import web
@@ -81,13 +81,13 @@ class MockCarma:
         self.logins = 0
         self.violations: list[str] = []  # Protocol mistakes by the client.
         self.zero_days: set[date] = set()  # Days with zero usage.
-        self.pad_zeros = (
-            False  # Chart pads days that have not yet been reported with 0.
-        )
+        self.pad_zeros = True  # Pad unpublished days with 0.
         self.current_works = True  # Does 'Current Month' jump to the newest month?
         self.ignore_next_month = (
             False  # Next Month can fail without changing the chart.
         )
+        # Reading date minus the newest published day. The live portal uses 1.
+        self.reading_lag_days = 1
         self.omit_reading_date = False  # Chart can omit the reading date.
         self.fail_prev_posts = (
             0  # Next N 'Prev Month' posts answer HTTP 500 without moving.
@@ -158,7 +158,7 @@ Please Sign In
                 vals.append("0.0000")
         if self.pad_zeros:
             vals.append("0.0000")
-        t = self.through
+        t = self.through + timedelta(days=self.reading_lag_days)
         subtitle = ""
         if not self.omit_reading_date:
             subtitle = (

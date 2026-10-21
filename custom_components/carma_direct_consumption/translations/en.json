@@ -11,7 +11,7 @@
       },
       "meters": {
         "title": "What does each meter measure?",
-        "description": "The portal does not specify what each meter measures. Check your CARMA bill to confirm.",
+        "description": "The portal does not specify what each meter measures. Check your CARMA bill to confirm, then assign the roles below.",
         "data": {
           "history_months": "Months of history to import (if available)."
         }
@@ -49,7 +49,7 @@
       "fields": {
         "months": {
           "name": "Months",
-          "description": "Months of history to import (if available)."
+          "description": "Months of history to import (if available)"
         }
       }
     }

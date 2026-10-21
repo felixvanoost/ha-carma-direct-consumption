@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urljoin
 
 import aiohttp
@@ -318,15 +318,19 @@ class CarmaClient:
 
     @staticmethod
     def _discard_future_zeroes(meter: MeterData) -> None:
-        """Remove trailing zero placeholders after the latest reported day."""
+        """Remove trailing zero placeholders after the newest published day.
+
+        CARMA derives daily usage from the following day's reading, so the newest
+        published day is the day before the "Reading as of" date. The chart pads
+        the rest of the month with 0, including the reading date.
+        """
 
         today = dt_util.now().date()
-        latest_reported_day = (
-            min(today, meter.reading_date) if meter.reading_date else today
-        )
+        reading_day = min(today, meter.reading_date) if meter.reading_date else today
+        newest_published_day = reading_day - timedelta(days=1)
         while (
             meter.rows
-            and meter.rows[-1][0] > latest_reported_day
+            and meter.rows[-1][0] > newest_published_day
             and meter.rows[-1][1] == 0
         ):
             meter.rows.pop()

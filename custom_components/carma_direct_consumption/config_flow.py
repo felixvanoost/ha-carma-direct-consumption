@@ -1,6 +1,7 @@
 """
 Configuration flow.
-Sign in to the CARMA Direct Consumption portal, then pick which meters to import and what they measure.
+Sign in to the CARMA Direct Consumption portal, then pick which meters to import
+and what they measure.
 """
 
 from __future__ import annotations

@@ -122,6 +122,31 @@ async def test_trailing_zero_readings_preserve_published_zero_days(
 
 
 # pylint: disable-next=redefined-outer-name
+async def test_reading_date_is_not_a_published_day(
+    # pylint: disable-next=redefined-outer-name
+    session,
+    portal,
+    monkeypatch,
+):
+    """Keep the newest usage bar, not the portal's latest reading-date."""
+
+    portal.through = date(2026, 10, 20)
+    portal.reading_lag_days = 1
+    monkeypatch.setattr(
+        api.dt_util,
+        "now",
+        lambda: datetime(2026, 10, 21, 14, 34, tzinfo=timezone.utc),
+    )
+
+    meters = await client(session, portal).async_fetch(2)
+
+    for index, meter in enumerate(meters):
+        assert meter.reading_date == date(2026, 10, 21)
+        assert meter.rows[-1][0] == date(2026, 10, 20)
+        assert meter.rows[-1][1] == portal.value(index, date(2026, 10, 20)) != 0
+
+
+# pylint: disable-next=redefined-outer-name
 async def test_bad_login(session, portal):
     """Raise an authentication error when portal credentials are rejected."""
 
