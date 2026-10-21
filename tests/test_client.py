@@ -1,8 +1,11 @@
 """Test client to be used against the mock portal."""
 
+from datetime import date, datetime, timezone
+
 import aiohttp
 import pytest
 
+from custom_components.carma_smart_metering import api
 from custom_components.carma_smart_metering.api import CarmaAuthError, CarmaClient, CarmaConnectionError, CarmaParseError
 
 from .mock_carma import ACCOUNT, ADDRESS, METERS
@@ -37,6 +40,27 @@ async def test_months_limit_and_only(session, portal):
     assert [m.meter_id for m in meters] == ["21167069"]
     assert meters[0].rows[0][0].isoformat() == "2026-09-01"
     assert meters[0].rows[-1][0] == portal.through
+
+
+async def test_trailing_zero_readings_preserve_published_zero_days(
+    session, portal, monkeypatch
+):
+    portal.through = date(2026, 10, 18)
+    portal.zero_days.update({date(2026, 10, 17), portal.through})
+    portal.pad_zeros = True
+    monkeypatch.setattr(
+        api.dt_util,
+        "now",
+        lambda: datetime(2026, 10, 21, tzinfo=timezone.utc),
+    )
+
+    meters = await client(session, portal).async_fetch(
+        {"21167069": 2}, only={"21167069"}
+    )
+
+    rows = meters[0].rows
+    assert rows[-2:] == [(date(2026, 10, 17), 0.0), (portal.through, 0.0)]
+    assert rows[-1][0] == portal.through
 
 
 async def test_bad_login(session, portal):

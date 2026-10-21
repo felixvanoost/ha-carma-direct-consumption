@@ -11,6 +11,7 @@ from datetime import date
 from urllib.parse import urljoin
 
 import aiohttp
+from homeassistant.util import dt as dt_util
 
 from . import const
 from .parser import active_tab, parse_chart, parse_form, parse_tabs
@@ -225,9 +226,14 @@ class CarmaClient:
             raise CarmaParseError(f"No chart found for meter {number}")
         meter.rows = sorted(rows.items())
 
-        # The current month's chart can display readings of 0 for days that have not yet been published.
-        # These are not real consumption readings and should be removed from the end of the series.
-        while meter.rows and meter.rows[-1][1] == 0:
+        # The portal pads unpublished days with zeroes. Discard padded future dates.
+        today = dt_util.now().date()
+        latest_reported_day = min(today, meter.reading_date) if meter.reading_date else today
+        while (
+            meter.rows
+            and meter.rows[-1][0] > latest_reported_day
+            and meter.rows[-1][1] == 0
+        ):
             meter.rows.pop()
         meter.months = sorted(seen)
         meter.stop_reason = stop
