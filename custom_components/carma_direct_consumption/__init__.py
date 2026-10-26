@@ -10,10 +10,11 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.translation import async_get_translations
 
 from .api import create_client
-from .const import CONF_ACCOUNT, CONF_ADDRESS, DOMAIN, SERVICE_REIMPORT
-from .coordinator import CarmaConfigEntry, CarmaCoordinator
+from .const import CONF_ACCOUNT, CONF_ADDRESS, DOMAIN, ROLE_SKIP, SERVICE_REIMPORT
+from .coordinator import CarmaConfigEntry, CarmaCoordinator, configured_roles
 
 # Home Assistant requires this integration constant to use uppercase naming.
 # pylint: disable-next=invalid-name
@@ -59,7 +60,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> boo
     """Set up a configured CARMA account."""
 
     client = create_client(hass, entry.data[CONF_ADDRESS], entry.data[CONF_ACCOUNT])
-    coordinator = CarmaCoordinator(hass, entry, client)
+    translations = await async_get_translations(
+        hass, hass.config.language, "device", [DOMAIN]
+    )
+    role_names = {
+        role: translations[f"component.{DOMAIN}.device.{role}.name"]
+        for role in configured_roles(entry).values()
+        if role != ROLE_SKIP
+    }
+    coordinator = CarmaCoordinator(hass, entry, client, role_names)
     await coordinator.async_load_state()
     entry.runtime_data = coordinator
 

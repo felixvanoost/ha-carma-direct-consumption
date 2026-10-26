@@ -25,7 +25,6 @@ from .const import (
     DOMAIN,
     OVERLAP_DAYS,
     REFRESH_MONTHS,
-    ROLE_LABELS,
     RETRY_INTERVAL,
     ROLE_SKIP,
     UPDATE_INTERVAL,
@@ -64,7 +63,11 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     config_entry: CarmaConfigEntry
 
     def __init__(
-        self, hass: HomeAssistant, entry: CarmaConfigEntry, client: CarmaClient
+        self,
+        hass: HomeAssistant,
+        entry: CarmaConfigEntry,
+        client: CarmaClient,
+        role_names: dict[str, str],
     ) -> None:
         super().__init__(
             hass,
@@ -74,6 +77,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             update_interval=UPDATE_INTERVAL,
         )
         self.client = client
+        self._role_names = role_names
         self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._state: dict[str, dict] = {}
         self._refresh_lock = asyncio.Lock()
@@ -308,9 +312,8 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             )
         return statistics
 
-    @staticmethod
     def _statistic_metadata(
-        meter: MeterData, role: str, stat_id: str
+        self, meter: MeterData, role: str, stat_id: str
     ) -> StatisticMetaData:
         """Build Recorder metadata for a meter's external statistics."""
 
@@ -318,7 +321,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         return StatisticMetaData(
             **_NO_MEAN,
             has_sum=True,
-            name=f"{ROLE_LABELS.get(role, role)} (meter {meter.meter_id})",
+            name=f"{self._role_names[role]} (meter {meter.meter_id})",
             source=DOMAIN,
             statistic_id=stat_id,
             unit_class=unit_class,

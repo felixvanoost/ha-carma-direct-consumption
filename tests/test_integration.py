@@ -9,6 +9,7 @@ from homeassistant.components.recorder.statistics import (
     statistics_during_period,
 )
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -112,7 +113,7 @@ async def test_first_import_hot_cold_electricity(
 ):
     """Import all meter roles and create corresponding sensors."""
 
-    await setup_entry(hass)
+    entry = await setup_entry(hass)
     assert not portal.violations
     days = len(portal.all_days())
 
@@ -130,21 +131,49 @@ async def test_first_import_hot_cold_electricity(
     assert (await meta(hass, COLD))["unit_class"] == "volume"
     assert (await meta(hass, ELEC))["unit_class"] == "energy"
 
-    last = hass.states.get("sensor.cold_water_meter_21145135_last_daily_usage")
+    last = hass.states.get("sensor.cold_water_last_daily_usage")
     assert float(last.state) == pytest.approx(portal.value(0, portal.through))
     assert (
         last.attributes["device_class"] == "water"
         and last.attributes["unit_of_measurement"] == "m³"
     )
     assert last.attributes["date"] == portal.through.isoformat()
-    reading = hass.states.get("sensor.hot_water_meter_21167069_meter_reading")
+    reading = hass.states.get("sensor.hot_water_meter_reading")
     assert float(reading.state) == pytest.approx(portal.reading(1))
     assert (
         hass.states.get(
-            "sensor.electricity_meter_m0129495_last_daily_usage"
+            "sensor.electricity_last_daily_usage"
         ).attributes["device_class"]
         == "energy"
     )
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, COLD), entry.entry_id
+    )
+    assert device.name == "Cold water"
+    assert device.serial_number == COLD
+    sensor_entry = er.async_get(hass).async_get("sensor.cold_water_last_daily_usage")
+    assert sensor_entry.unique_id == f"{COLD}_last_day"
+    assert sensor_entry.translation_key == "last_daily_usage"
+
+
+async def test_role_mismatch_does_not_apply_incompatible_device_class(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    portal,
+):
+    """Do not assign the water class to a meter configured as electricity."""
+
+    await setup_entry(hass, roles={COLD: "electricity", HOT: "skip", ELEC: "skip"})
+
+    last = hass.states.get("sensor.electricity_last_daily_usage")
+    reading = hass.states.get("sensor.electricity_meter_reading")
+    assert last.attributes["unit_of_measurement"] == "m³"
+    assert reading.attributes["unit_of_measurement"] == "m³"
+    assert "device_class" not in last.attributes
+    assert "device_class" not in reading.attributes
 
 
 async def test_next_day_and_revision_keep_totals_exact(
@@ -177,9 +206,7 @@ async def test_next_day_and_revision_keep_totals_exact(
         0.5 + portal.value(0, date(2026, 10, 19))
     )
     assert (
-        hass.states.get("sensor.cold_water_meter_21145135_last_daily_usage").attributes[
-            "date"
-        ]
+        hass.states.get("sensor.cold_water_last_daily_usage").attributes["date"]
         == "2026-10-19"
     )
 
@@ -196,7 +223,7 @@ async def test_skipped_meter_is_not_imported(
 
     await setup_entry(hass, roles={COLD: "cold_water", HOT: "hot_water", ELEC: "skip"})
     assert await stats(hass, ELEC) == []
-    assert hass.states.get("sensor.electricity_meter_m0129495_last_daily_usage") is None
+    assert hass.states.get("sensor.electricity_last_daily_usage") is None
     assert len(await stats(hass, COLD)) == len(portal.all_days())
 
 
@@ -557,7 +584,7 @@ async def test_scheduled_refresh_picks_up_new_day_without_manual_refresh(
 
     await setup_entry(hass)
     n = len(await stats(hass, COLD))
-    sensor = "sensor.cold_water_meter_21145135_last_daily_usage"
+    sensor = "sensor.cold_water_last_daily_usage"
     assert hass.states.get(sensor).attributes["date"] == "2026-10-18"
 
     portal.through = date(2026, 10, 19)
@@ -591,7 +618,7 @@ async def test_unpublished_zero_days_are_not_imported_and_later_days_arrive(
             dt_util.start_of_local_day(portal.through)
         )
         assert rows[-1]["sum"] == pytest.approx(portal.total(idx))
-    sensor = hass.states.get("sensor.cold_water_meter_21145135_last_daily_usage")
+    sensor = hass.states.get("sensor.cold_water_last_daily_usage")
     assert sensor.attributes["date"] == "2026-10-15"
     assert float(sensor.state) == pytest.approx(portal.value(0, date(2026, 10, 15)))
 
@@ -606,9 +633,7 @@ async def test_unpublished_zero_days_are_not_imported_and_later_days_arrive(
         assert len(rows) == before[mid] + 4
         assert rows[-1]["sum"] == pytest.approx(portal.total(idx))
     assert (
-        hass.states.get("sensor.cold_water_meter_21145135_last_daily_usage").attributes[
-            "date"
-        ]
+        hass.states.get("sensor.cold_water_last_daily_usage").attributes["date"]
         == "2026-10-19"
     )
 

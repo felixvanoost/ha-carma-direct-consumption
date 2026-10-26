@@ -53,5 +53,29 @@
         }
       }
     }
+  },
+  "device": {
+    "cold_water": {
+      "name": "Cold water"
+    },
+    "hot_water": {
+      "name": "Hot water"
+    },
+    "electricity": {
+      "name": "Electricity"
+    },
+    "other": {
+      "name": "Other"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_daily_usage": {
+        "name": "Last daily usage"
+      },
+      "meter_reading": {
+        "name": "Meter reading"
+      }
+    }
   }
 }
