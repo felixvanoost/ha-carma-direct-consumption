@@ -15,7 +15,7 @@ An integration for Home Assistant that reads daily electricity and water consump
 
 ## Installation
 
-If you do not yet have HACS installed, begin by following the [Getting started with HACS]([hacs.xyz](https://hacs.xyz/docs/use/)) instructions. Once installed, click on this badge from the machine Home Assistant is running on to add this repository to HACS:
+If you do not yet have HACS installed, begin with the [Getting started with HACS](https://hacs.xyz/docs/use/) instructions. Once installed, click on this badge from the machine Home Assistant is running on to add this repository to HACS:
 
 [![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=felixvanoost&repository=ha-carma-direct-consumption&category=integration)
 
@@ -23,7 +23,7 @@ You can also add the repository manually:
 
 1. In Home Assistant, open the HACS panel on the left sidebar, then select **Integrations**.
 2. From the drop-down menu in the top right corner (three dots), select **Custom repositories**.
-3. Enter the repository URL (`https://github.com/YOUR_GITHUB_USERNAME/ha-carma-direct-consumption`) and type (`integration`), then click on **Add**.
+3. Enter the repository URL (`https://github.com/felixvanoost/ha-carma-direct-consumption`) and type (`integration`), then click on **Add**.
 4. Find **CARMA Direct Consumption** in the HACS panel then select **Download** from the drop-down menu on the right.
 5. Restart Home Assistant to apply the changes.
 
@@ -39,7 +39,7 @@ Once configured, the reading history will be imported in the background and may 
 
 ## Usage
 
-Past daily usage is saved as Home Assistant [long-term statistics](https://www.home-assistant.io/docs/configuration/long-term-statistics/). You can directly use this data in the Energy dashboard:
+Past daily usage is saved as Home Assistant [long-term statistics](https://www.home-assistant.io/docs/configuration/long-term-statistics/). You can use this data in the Energy dashboard:
 
 1. In Home Assistant, open the Energy dashboard via **Settings → Dashboards → Energy**.
 2. From the Energy dashboard, click on **Edit** in the top right corner.

@@ -64,7 +64,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> boo
         hass, hass.config.language, "device", [DOMAIN]
     )
     role_names = {
-        role: translations[f"component.{DOMAIN}.device.{role}.name"]
+        role: translations.get(f"component.{DOMAIN}.device.{role}.name", role)
         for role in configured_roles(entry).values()
         if role != ROLE_SKIP
     }

@@ -162,6 +162,7 @@ async def test_role_mismatch_does_not_apply_incompatible_device_class(
     # pylint: disable-next=unused-argument
     enable_custom_integrations,
     hass,
+    # pylint: disable-next=unused-argument
     portal,
 ):
     """Do not assign the water class to a meter configured as electricity."""
