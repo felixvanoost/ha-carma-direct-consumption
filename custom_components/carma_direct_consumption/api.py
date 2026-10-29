@@ -243,7 +243,8 @@ class CarmaClient:
         """Show the latest chart month containing the reported reading."""
 
         html = await self._press(html, "currMonth_btn")
-        for steps in range(MAX_FORWARD_STEPS + 1):
+        steps = 0
+        while True:
             chart = _parse_chart(html)
             if not chart.reading_date:
                 raise CarmaParseError(
@@ -252,7 +253,7 @@ class CarmaClient:
             latest_month = chart.reading_date.replace(day=1)
             if chart.month >= latest_month:
                 return html
-            if steps == MAX_FORWARD_STEPS:
+            if steps >= MAX_FORWARD_STEPS:
                 raise CarmaParseError(
                     f"Could not reach the latest reading month {latest_month:%Y-%m}; "
                     f"stopped at {chart.month:%Y-%m} after {MAX_FORWARD_STEPS} month steps"
@@ -264,9 +265,7 @@ class CarmaClient:
                     f"CARMA's Next Month button did not advance beyond {chart.month:%Y-%m}"
                 )
             html = nxt
-        raise CarmaParseError(
-            f"Could not reach the latest reading month after {MAX_FORWARD_STEPS} month steps"
-        )
+            steps += 1
 
     async def _read_meter(
         self, html: str, number: str, depth: int

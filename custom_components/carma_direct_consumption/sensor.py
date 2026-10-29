@@ -37,33 +37,23 @@ _HA_UNITS = {
     "kWh": UnitOfEnergy.KILO_WATT_HOUR,
 }
 
+_WATER_DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="last_day",
+        translation_key="last_daily_usage",
+        device_class=SensorDeviceClass.WATER,
+    ),
+    SensorEntityDescription(
+        key="reading",
+        translation_key="meter_reading",
+        device_class=SensorDeviceClass.WATER,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+)
+
 _ROLE_DESCRIPTIONS = {
-    ROLE_COLD: (
-        SensorEntityDescription(
-            key="last_day",
-            translation_key="last_daily_usage",
-            device_class=SensorDeviceClass.WATER,
-        ),
-        SensorEntityDescription(
-            key="reading",
-            translation_key="meter_reading",
-            device_class=SensorDeviceClass.WATER,
-            state_class=SensorStateClass.TOTAL_INCREASING,
-        ),
-    ),
-    ROLE_HOT: (
-        SensorEntityDescription(
-            key="last_day",
-            translation_key="last_daily_usage",
-            device_class=SensorDeviceClass.WATER,
-        ),
-        SensorEntityDescription(
-            key="reading",
-            translation_key="meter_reading",
-            device_class=SensorDeviceClass.WATER,
-            state_class=SensorStateClass.TOTAL_INCREASING,
-        ),
-    ),
+    ROLE_COLD: _WATER_DESCRIPTIONS,
+    ROLE_HOT: _WATER_DESCRIPTIONS,
     ROLE_ELECTRICITY: (
         SensorEntityDescription(
             key="last_day",

@@ -343,8 +343,3 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
                 sum_before + sum(value for _, value in readings[:index]), 6
             ),
         }
-
-    async def async_remove_state(self) -> None:
-        """Remove saved import progress."""
-
-        await self._store.async_remove()
