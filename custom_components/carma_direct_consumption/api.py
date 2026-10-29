@@ -264,6 +264,9 @@ class CarmaClient:
                     f"CARMA's Next Month button did not advance beyond {chart.month:%Y-%m}"
                 )
             html = nxt
+        raise CarmaParseError(
+            f"Could not reach the latest reading month after {MAX_FORWARD_STEPS} month steps"
+        )
 
     async def _read_meter(
         self, html: str, number: str, depth: int
@@ -359,13 +362,6 @@ class CarmaClient:
             meter, html = await self._read_meter(html, number, depth)
             result.append(meter)
 
-        # Identical readings can indicate that a tab switch failed.
-        for i, a in enumerate(result):
-            for b in result[i + 1 :]:
-                if a.rows and a.rows == b.rows:
-                    raise CarmaParseError(
-                        f"Meters {a.meter_id} and {b.meter_id} returned identical data"
-                    )
         return result
 
     async def async_discover(self) -> list[MeterData]:

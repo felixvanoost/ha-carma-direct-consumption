@@ -5,13 +5,13 @@
 
 > **Note:** This integration is not affiliated with or endorsed by CARMA Corp.
 
-An integration for Home Assistant that reads daily electricity and water consumption readings from the CARMA Direct Consumption [portal](http://www.carmasmartmetering.com/DirectConsumptionDev/login.aspx). CARMA provides sub-metering services for buildings in Canada.
+An integration for Home Assistant that reads daily electricity and water consumption readings from the CARMA Direct Consumption [portal](http://www.carmasmartmetering.com/DirectConsumptionDev/login.aspx). CARMA provides sub-metering services to high-rise residential and commercial buildings in Canada.
 
 ## Features
 
-- Reads every meter on your account (electricity, cold water, hot water, etc.) and creates two sensors per meter - `Last daily usage` and `Meter reading`.
+- Reads every meter on your account and creates two sensors per meter: `last_daily_usage`  and `meter_reading`.
 - Imports historical readings as long-term statistics into Home Assistant.
-- Allows you to label the measurement that each meter corresponds to.
+- Allows you to label the measurement that each meter corresponds to (electricity, cold water, hot water, etc.).
 
 ## Installation
 
