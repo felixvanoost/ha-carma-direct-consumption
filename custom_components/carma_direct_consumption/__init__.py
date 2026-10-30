@@ -9,11 +9,18 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.translation import async_get_translations
 
 from .api import create_client
-from .const import CONF_ACCOUNT, CONF_ADDRESS, DOMAIN, ROLE_SKIP, SERVICE_REIMPORT
+from .const import (
+    CONF_ACCOUNT,
+    CONF_ADDRESS,
+    DOMAIN,
+    ROLE_SKIP,
+    SERVICE_REIMPORT,
+)
 from .coordinator import CarmaConfigEntry, CarmaCoordinator, configured_roles
 
 # Home Assistant requires this integration constant to use uppercase naming.
@@ -97,6 +104,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> bo
     """Unload the sensor platform."""
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_config_entry_device(
+    _hass: HomeAssistant, entry: CarmaConfigEntry, device_entry: DeviceEntry
+) -> bool:
+    """Allow removal of devices that no longer correspond to a configured meter."""
+
+    meters = configured_roles(entry)
+    return not any(
+        domain == DOMAIN and meter_id in meters
+        for domain, meter_id in device_entry.identifiers
+    )
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: CarmaConfigEntry) -> None:

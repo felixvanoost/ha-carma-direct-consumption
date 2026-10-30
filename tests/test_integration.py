@@ -21,7 +21,10 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
 
-from custom_components.carma_direct_consumption import const
+from custom_components.carma_direct_consumption import (
+    async_remove_config_entry_device,
+    const,
+)
 from custom_components.carma_direct_consumption.const import (
     CONF_ACCOUNT,
     CONF_ADDRESS,
@@ -154,6 +157,32 @@ async def test_first_import_hot_cold_electricity(
     sensor_entry = er.async_get(hass).async_get("sensor.cold_water_last_daily_usage")
     assert sensor_entry.unique_id == f"{COLD}_last_day"
     assert sensor_entry.translation_key == "last_daily_usage"
+
+
+async def test_remove_stale_device_but_keep_configured_meter(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    # pylint: disable-next=unused-argument
+    portal,
+):
+    """Offer stale devices for removal without removing configured meters."""
+
+    entry = await setup_entry(hass)
+    registry = dr.async_get(hass)
+    current_device = registry.async_get_device_by_identifier(
+        (DOMAIN, COLD), entry.entry_id
+    )
+    stale_device = registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "old_meter")},
+    )
+
+    assert current_device is not None
+    assert not await async_remove_config_entry_device(hass, entry, current_device)
+    assert await async_remove_config_entry_device(hass, entry, stale_device)
 
 
 async def test_role_mismatch_does_not_apply_incompatible_device_class(

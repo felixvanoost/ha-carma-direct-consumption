@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Allows removal of devices that no longer correspond to a configured meter.
+
 ## 0.2.0
 
 - Shows each meter's assigned role as its translated device name (e.g. 'Cold water') and translates its sensor names ('Last daily usage' and 'Meter reading'). The meter serial number is now correctly stored as the device serial number instead of appearing in the device name.
