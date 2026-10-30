@@ -4,6 +4,7 @@
 
 - Shows each meter's assigned role as its translated device name (e.g. 'Cold water') and translates its sensor names ('Last daily usage' and 'Meter reading'). The meter serial number is now correctly stored as the device serial number instead of appearing in the device name.
 - Bases sensor unique IDs and long-term statistic IDs on the meter serial number.
+- Removes a check for duplicate meter readings that would prevent consecutive days with the same readings (e.g. 0) from being imported successfully.
 
 ## 0.1.0
 
