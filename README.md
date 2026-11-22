@@ -5,53 +5,69 @@
 
 > **Note:** This integration is not affiliated with or endorsed by CARMA Corp.
 
-An integration for Home Assistant that reads daily electricity and water consumption readings from the CARMA Direct Consumption [portal](http://www.carmasmartmetering.com/DirectConsumptionDev/login.aspx). CARMA provides sub-metering services to high-rise residential and commercial buildings in Canada.
+A Home Assistant integration that reads daily electricity and water consumption from the CARMA Direct Consumption [portal](http://www.carmasmartmetering.com/DirectConsumptionDev/login.aspx). CARMA provides sub-metering services to residential and commercial buildings in Canada.
 
 ## Features
 
-- Reads every meter on your account and creates two sensors per meter: `last_daily_usage`  and `meter_reading`.
-- Imports historical readings as long-term statistics into Home Assistant.
-- Allows you to label the measurement that each meter corresponds to (electricity, cold water, hot water, etc.).
+- Reads every meter on the account and creates `last_daily_usage` and `meter_reading` sensors for each imported meter.
+- Imports historical readings as long-term statistics.
+- Lets you assign a role to each meter (electricity, cold water, hot water, or other).
+- Lets you reconfigure the integration to rediscover meters and update their roles.
 
 ## Installation
 
-If you do not yet have HACS installed, begin with the [Getting started with HACS](https://hacs.xyz/docs/use/) instructions. Once installed, click on this badge from the machine Home Assistant is running on to add this repository to HACS:
+### Home Assistant Marketplace
+
+[Add CARMA Direct Consumption to Home Assistant](https://my.home-assistant.io/redirect/config_flow_start/?domain=carma_direct_consumption)
+
+In Home Assistant 2026.11 or later, open **Settings → Devices & services → Add integration**, search for **CARMA Direct Consumption**, and complete the setup.
+
+### HACS
+
+If HACS is not already installed, follow the [Getting started with HACS](https://hacs.xyz/docs/use/) instructions. From the machine that Home Assistant is running on, click on this badge to add the repository:
 
 [![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=felixvanoost&repository=ha-carma-direct-consumption&category=integration)
 
 You can also add the repository manually:
 
-1. In Home Assistant, open the HACS panel on the left sidebar, then select **Integrations**.
-2. From the drop-down menu in the top right corner (three dots), select **Custom repositories**.
+1. Open the HACS panel on the left sidebar, then select **Integrations**.
+2. Open the three-dot menu in the top-right corner and select **Custom repositories**.
 3. Enter the repository URL (`https://github.com/felixvanoost/ha-carma-direct-consumption`) and type (`integration`), then click on **Add**.
-4. Find **CARMA Direct Consumption** in the HACS panel then select **Download** from the drop-down menu on the right.
+4. Find **CARMA Direct Consumption** in HACS, open the three-dot menu, and select **Download**.
 5. Restart Home Assistant to apply the changes.
 
 ## Configuration
 
 Once installed, add the CARMA Direct Consumption integration to Home Assistant and configure the meter roles:
 
-1. In Home Assistant, open **Settings → Devices & services → Add integration**, then select **CARMA Direct Consumption**.
+1. Open **Settings → Devices & services → Add integration**, then select **CARMA Direct Consumption**.
 2. Enter your service address and account number exactly as they are displayed on the CARMA billing portal.
-3. When prompted, select the type of measurement that each meter on your account corresponds to. If you're unsure, check the numbers against a recent CARMA bill.
+3. When prompted, select the type of measurement that each meter on your account corresponds to. If you are unsure, check the numbers against a recent CARMA bill.
 
-Once configured, the reading history will be imported in the background and may take a few minutes.
+Once configured, the reading history is imported in the background and may take a few minutes.
+
+To refresh the meters associated with the account:
+
+1. Open **Settings → Devices & services**, then select **CARMA Direct Consumption**.
+2. Open the three-dot menu, and choose **Reconfigure**.
+
+Existing roles are preserved for meters that remain on the account. New meters can be assigned roles, and meters that are no longer reported can be removed from Home Assistant.
 
 ## Usage
 
-Past daily usage is saved as Home Assistant [long-term statistics](https://www.home-assistant.io/docs/configuration/long-term-statistics/). You can use this data in the Energy dashboard:
+Daily usage is stored as Home Assistant [long-term statistics](https://www.home-assistant.io/docs/configuration/long-term-statistics/). These can be used on the Energy dashboard:
 
-1. In Home Assistant, open the Energy dashboard via **Settings → Dashboards → Energy**.
+1. Open the Energy dashboard via **Settings → Dashboards → Energy**.
 2. From the Energy dashboard, click on **Edit** in the top right corner.
-3. Under **Grid connections**, select the electricity meter(s) to use as the data source. If CARMA measures your water usage, you can also add water meter(s) under the 'Water Consumption' tab. The Energy dashboard supports an arbitrary number of meters, so you can monitor hot and cold water usage separately or track electricity usage for individually metered zones in a building.
+3. Under **Grid connections**, select the electricity meters to use as data sources. To track water, add the meters under **Water consumption**. You can monitor hot and cold water separately or track individually metered electricity zones.
 
-The CARMA portal publishes daily readings and reports them about a day late. It may also revise recent readings, so the last 3 days of data is re-imported with every refresh.
+The CARMA portal publishes daily readings with roughly a one-day delay. It may also revise recent readings, so the latest three days are re-imported with every refresh.
 
-> **Security:** The CARMA portal supports only HTTP. Login credentials and meter readings are sent in plaintext and can be read by others on the network.
+> **Security:** The CARMA portal supports HTTP only. Login credentials and meter readings are sent without encryption and can be visible to others on the network.
 
 ## Troubleshooting
 
-To enable debug logging, open **Tools → Actions** and paste the following YAML code:
+To enable debug logging, open **Developer tools → Actions** and paste the following YAML code:
 
 ```yaml
 logger:
@@ -62,10 +78,12 @@ logger:
 You can check the logs in **Settings → System → Logs** to see why an import failed:
 
 ```bash
-Meter 00000000: read 148 day(s) from 5 month(s) (Jun 2026 to Oct 2026); stopped because: ...
+Meter 00000000: read 148 days from 5 months (Jun 2026 to Oct 2026); stop reason: Prev Month stopped moving.
 ```
 
-To re-import meter data from scratch, run **Developer tools → Actions → CARMA Direct Consumption: Re-import history**.
+If a meter role is not recognized, the integration logs a warning and skips the meter. Reconfigure the integration or update the meter roles in the options to assign a supported role.
+
+To re-import meter data from scratch, open **Developer tools → Actions** and run **CARMA Direct Consumption: Re-import history**.
 
 ## Contributing
 

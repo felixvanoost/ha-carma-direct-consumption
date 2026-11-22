@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Adds an account reconfiguration flow to rediscover meters and update or remove stale meter configurations.
+- Validates saved import progress and pending re-imports before using them.
+- Validates configured meter roles and skips unknown roles safely.
+- Improves CARMA portal recovery by distinguishing transient HTTP and network failures from permanent errors and honoring `Retry-After` delays.
+- Handles empty chart series, escaped chart text, invalid reading dates, and invalid meter readings more safely.
+- Normalizes supported reading units consistently.
+- Trims and normalizes account credentials consistently across setup, reauthentication, and reconfiguration.
+
 ## 0.2.1
 
 - Allows removal of devices that no longer correspond to a configured meter.
