@@ -142,7 +142,13 @@ class _CarmaSensor(CoordinatorEntity[CarmaCoordinator], SensorEntity):
 class CarmaLastDaySensor(_CarmaSensor):
     """Usage on the most recent day displayed in the portal."""
 
-    def __init__(self, coordinator, entry, meter_id, role) -> None:
+    def __init__(
+        self,
+        coordinator: CarmaCoordinator,
+        entry: CarmaConfigEntry,
+        meter_id: str,
+        role: str,
+    ) -> None:
         super().__init__(coordinator, entry, meter_id, role, 0)
 
     @property
@@ -160,7 +166,13 @@ class CarmaLastDaySensor(_CarmaSensor):
 class CarmaReadingSensor(_CarmaSensor):
     """The meter reading displayed by the portal."""
 
-    def __init__(self, coordinator, entry, meter_id, role) -> None:
+    def __init__(
+        self,
+        coordinator: CarmaCoordinator,
+        entry: CarmaConfigEntry,
+        meter_id: str,
+        role: str,
+    ) -> None:
         super().__init__(coordinator, entry, meter_id, role, 1)
 
     @property

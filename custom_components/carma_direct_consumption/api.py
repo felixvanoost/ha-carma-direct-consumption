@@ -13,6 +13,7 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin
 
 import aiohttp
+from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from . import const
@@ -80,7 +81,9 @@ class MeterData:
     stop_reason: str = ""
 
 
-def create_client(hass, address: str, account: str) -> "CarmaClient":
+def create_client(
+    hass: HomeAssistant, address: str, account: str
+) -> "CarmaClient":
     """Create a client with an isolated cookie jar for the portal session."""
 
     # pylint: disable-next=import-outside-toplevel

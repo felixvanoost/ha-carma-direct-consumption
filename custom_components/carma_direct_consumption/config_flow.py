@@ -13,8 +13,8 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import callback
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -82,7 +82,11 @@ def guess_roles(meters: list[MeterData]) -> dict[str, str]:
     return roles
 
 
-async def _validate(hass, address: str, account: str) -> list[MeterData]:
+async def _validate(
+    hass: HomeAssistant, address: str, account: str
+) -> list[MeterData]:
+    """Validate portal credentials and discover account meters."""
+
     return await create_client(hass, address, account).async_discover()
 
 
@@ -113,8 +117,9 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> CarmaOptionsFlow:
         return CarmaOptionsFlow()
 
-    # -- initial setup ------------------------------------------------------- #
-    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Validate credentials and discover account meters."""
 
         errors: dict[str, str] = {}
@@ -138,7 +143,9 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=_credentials_schema(user_input), errors=errors
         )
 
-    async def async_step_meters(self, user_input: dict[str, Any] | None = None):
+    async def async_step_meters(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Choose each meter role and history depth."""
 
         keys = {_field_key(m.meter_id, m.unit_raw): m.meter_id for m in self._meters}
@@ -165,14 +172,16 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="meters", data_schema=vol.Schema(schema))
 
-    async def async_step_reauth(self, _entry_data: Mapping[str, Any]):
+    async def async_step_reauth(
+        self, _entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
         """Start reauthentication for the existing entry."""
 
         return await self.async_step_reauth_confirm()
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
-    ):
+    ) -> ConfigFlowResult:
         """Rediscover meters and update account settings."""
 
         entry = self._get_reconfigure_entry()
@@ -199,7 +208,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_meters(
         self, user_input: dict[str, Any] | None = None
-    ):
+    ) -> ConfigFlowResult:
         """Update meter roles after rediscovery."""
 
         entry = self._get_reconfigure_entry()
@@ -239,7 +248,9 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(schema),
         )
 
-    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None):
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Validate replacement credentials and update the entry."""
 
         entry = self._get_reauth_entry()
@@ -269,7 +280,9 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class CarmaOptionsFlow(_OptionsBase):
     """Change the role assigned to each meter."""
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Update the configured meter roles."""
 
         data = self.config_entry.data
