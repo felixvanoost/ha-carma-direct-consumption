@@ -30,6 +30,7 @@ from .const import (
     RETRY_INTERVAL,
     ROLE_SKIP,
     UPDATE_INTERVAL,
+    VALID_METER_ROLES,
 )
 from .parser import unit_info
 
@@ -71,9 +72,27 @@ def statistic_id(meter_id: str) -> str:
 
 
 def configured_roles(entry: ConfigEntry) -> dict[str, str]:
-    """Return the configured meter roles."""
+    """Return the configured meter roles and skip any invalid entries."""
 
-    return entry.options.get(CONF_METERS, entry.data[CONF_METERS])
+    raw_roles = entry.options.get(CONF_METERS, entry.data.get(CONF_METERS, {}))
+    if not isinstance(raw_roles, dict):
+        _LOGGER.warning("Ignoring invalid configured meter roles.")
+        return {}
+
+    roles: dict[str, str] = {}
+    for meter_id, role in raw_roles.items():
+        if not isinstance(meter_id, str) or not isinstance(role, str):
+            _LOGGER.warning("Ignoring invalid meter role configuration.")
+            continue
+        if role not in VALID_METER_ROLES:
+            _LOGGER.warning(
+                "Meter %s has unknown role %r. Treating it as skipped.",
+                meter_id,
+                role,
+            )
+            role = ROLE_SKIP
+        roles[meter_id] = role
+    return roles
 
 
 class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
@@ -174,7 +193,9 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             _LOGGER.warning("Ignoring incomplete CARMA re-import state.")
             return None
         if not all(
-            isinstance(meter_id, str) and isinstance(role, str)
+            isinstance(meter_id, str)
+            and isinstance(role, str)
+            and role in VALID_METER_ROLES
             for meter_id, role in roles.items()
         ):
             _LOGGER.warning("Ignoring CARMA re-import state with invalid meter roles.")

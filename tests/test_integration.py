@@ -268,6 +268,26 @@ async def test_role_mismatch_does_not_apply_incompatible_device_class(
     assert "device_class" not in reading.attributes
 
 
+async def test_invalid_meter_role_is_skipped(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    # pylint: disable-next=unused-argument
+    portal,
+    caplog,
+):
+    """Skip a meter whose saved role is unknown."""
+
+    await setup_entry(hass, roles={COLD: "unknown_role", HOT: "skip", ELEC: "skip"})
+
+    assert hass.states.get("sensor.unknown_role_last_daily_usage") is None
+    assert hass.states.get("sensor.cold_water_last_daily_usage") is None
+    assert await stats(hass, COLD) == []
+    assert "Meter 21145135 has unknown role 'unknown_role'" in caplog.text
+
+
 async def test_next_day_and_revision_keep_totals_exact(
     # pylint: disable-next=unused-argument
     recorder_mock,
