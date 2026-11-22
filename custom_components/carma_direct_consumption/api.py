@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin
 
 import aiohttp
@@ -24,32 +26,36 @@ from .parser import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-TIMEOUT = aiohttp.ClientTimeout(total=60)
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=60)
 
 # The CARMA portal is quite old and fragile, so we need to pace our requests.
-REQUEST_DELAY = 1.0  # Seconds between requests.
-REQUEST_RETRY_DELAYS = (2.0, 5.0)
+REQUEST_DELAY_SECONDS = 1.0
+REQUEST_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+REQUEST_RETRYABLE_HTTP_STATUSES = frozenset((*range(500, 600), 408, 429))
+MAX_RETRY_AFTER_SECONDS = 300
 MAX_EMPTY_MONTHS = 3  # Stop walking back after this many months in a row without data.
-MAX_FORWARD_STEPS = 12  # Walk forward at most this far to get to the newest month.
+MAX_FORWARD_MONTH_STEPS = 12  # Walk forward at most this far to get to the newest month.
 
 
 class CarmaError(Exception):
-    """Base error."""
+    """Base exception for CARMA portal errors."""
 
 
 class CarmaAuthError(CarmaError):
-    """Login was rejected."""
+    """Raised when the portal rejects sign-in."""
 
 
 class CarmaConnectionError(CarmaError):
-    """Could not reach the portal, or it answered with an error."""
+    """Raised when the portal cannot be reached or returns an HTTP error."""
 
 
 class CarmaParseError(CarmaError):
-    """The portal's pages could not be parsed."""
+    """Raised when portal pages do not match the expected format."""
 
 
 def _parse_chart(html: str) -> Chart:
+    """Convert chart parsing failures into CARMA integration errors."""
+
     try:
         chart = parse_chart(html)
     except ChartParseError as err:
@@ -75,7 +81,7 @@ class MeterData:
 
 
 def create_client(hass, address: str, account: str) -> "CarmaClient":
-    """A client with its own cookie jar. The portal's login lives in a session cookie."""
+    """Create a client with an isolated cookie jar for the portal session."""
 
     # pylint: disable-next=import-outside-toplevel
     from homeassistant.helpers.aiohttp_client import (
@@ -89,11 +95,13 @@ def create_client(hass, address: str, account: str) -> "CarmaClient":
 
 
 def _prev_month(d: date) -> date:
+    """Return the first day of the preceding month."""
+
     return date(d.year - 1, 12, 1) if d.month == 1 else date(d.year, d.month - 1, 1)
 
 
 class CarmaClient:
-    """Logs in and walks the 'Graphing' page (meter tabs x months)."""
+    """Sign in and read meter charts from the Graphing page."""
 
     def __init__(
         self,
@@ -110,41 +118,86 @@ class CarmaClient:
         self._made_request = False
         self._last_url = ""
 
+    @staticmethod
+    def _retry_delay(headers: aiohttp.typedefs.LooseHeaders, fallback: float) -> float:
+        """Get a bounded retry delay from a Retry-After header."""
+
+        value = headers.get("Retry-After")
+        if not value:
+            return fallback
+        value = value.strip()
+        if value.isdigit():
+            return float(min(max(int(value), 0), MAX_RETRY_AFTER_SECONDS))
+
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return fallback
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+        if not math.isfinite(delay):
+            return fallback
+        return float(min(max(math.ceil(delay), 0), MAX_RETRY_AFTER_SECONDS))
+
     async def _request(
         self, method: str, url: str, data: dict[str, str] | None = None
     ) -> tuple[str, str]:
+        """Send a request and retry transient portal failures."""
+
         if self._made_request:
-            await asyncio.sleep(REQUEST_DELAY)
+            await asyncio.sleep(REQUEST_DELAY_SECONDS)
         self._made_request = True
-        for attempt, delay in enumerate((*REQUEST_RETRY_DELAYS, None)):
+        for attempt in range(len(REQUEST_RETRY_DELAYS_SECONDS) + 1):
             try:
                 async with self._session.request(
-                    method, url, data=data, timeout=TIMEOUT
+                    method, url, data=data, timeout=REQUEST_TIMEOUT
                 ) as resp:
-                    if resp.status < 500 or delay is None:
+                    if resp.status not in REQUEST_RETRYABLE_HTTP_STATUSES:
                         resp.raise_for_status()
-                        self._last_url = str(resp.url)
-                        return self._last_url, await resp.text(errors="replace")
+                    elif attempt < len(REQUEST_RETRY_DELAYS_SECONDS):
+                        fallback = REQUEST_RETRY_DELAYS_SECONDS[attempt]
+                        delay = self._retry_delay(resp.headers, fallback)
+                        _LOGGER.debug(
+                            "CARMA portal returned HTTP %d. Retrying in %.0f seconds.",
+                            resp.status,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        resp.raise_for_status()
+                    self._last_url = str(resp.url)
+                    return self._last_url, await resp.text(errors="replace")
             except aiohttp.ClientResponseError as err:
+                if (
+                    err.status in REQUEST_RETRYABLE_HTTP_STATUSES
+                    and attempt < len(REQUEST_RETRY_DELAYS_SECONDS)
+                ):
+                    fallback = REQUEST_RETRY_DELAYS_SECONDS[attempt]
+                    delay = self._retry_delay(err.headers, fallback)
+                    _LOGGER.debug(
+                        "CARMA portal returned HTTP %d. Retrying in %.0f seconds.",
+                        err.status,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
                 raise CarmaConnectionError(
                     f"HTTP {err.status} from the CARMA portal"
                 ) from err
             except (aiohttp.ClientError, TimeoutError) as err:
-                if attempt >= len(REQUEST_RETRY_DELAYS):
+                if attempt >= len(REQUEST_RETRY_DELAYS_SECONDS):
                     raise CarmaConnectionError(
                         f"Cannot reach the CARMA portal: {err}"
                     ) from err
-                connection_delay = REQUEST_RETRY_DELAYS[attempt]
+                connection_delay = REQUEST_RETRY_DELAYS_SECONDS[attempt]
                 _LOGGER.debug(
                     "Connection to the CARMA portal failed. Retrying in %.0f seconds.",
                     connection_delay,
                 )
                 await asyncio.sleep(connection_delay)
                 continue
-            _LOGGER.debug(
-                "CARMA portal returned a server error. Retrying in %.0f seconds.", delay
-            )
-            await asyncio.sleep(delay)
         raise CarmaConnectionError("unreachable")
 
     async def _post_form(
@@ -155,7 +208,7 @@ class CarmaClient:
         event_target: str | None = None,
         button: str | None = None,
     ) -> str:
-        """Re-submit the page's form the way a browser would."""
+        """Submit the page form as a browser would."""
 
         form = parse_form(html)
         if not form.fields:
@@ -171,7 +224,7 @@ class CarmaClient:
         return text
 
     async def async_login(self) -> str:
-        """Sign into the portal and return the 'Graphing' page HTML."""
+        """Sign in and return the Graphing page HTML."""
 
         self._session.cookie_jar.clear()
         _, html = await self._request("GET", self._login_url)
@@ -215,6 +268,8 @@ class CarmaClient:
         return html
 
     async def _select_tab(self, html: str, index: int) -> str:
+        """Select a meter tab and return the updated page."""
+
         if active_tab(parse_form(html)) == index:
             return html
         form = parse_form(html)
@@ -235,12 +290,14 @@ class CarmaClient:
         return html
 
     async def _press(self, html: str, button: str) -> str:
+        """Submit a named button and return the updated page."""
+
         if button not in parse_form(html).buttons:
             raise CarmaParseError(f"Button {button} not found on the page")
         return await self._post_form(self._graph_url, html, button=button)
 
     async def _to_latest_month(self, html: str) -> str:
-        """Show the latest chart month containing the reported reading."""
+        """Move to the latest month that contains the reported reading."""
 
         html = await self._press(html, "currMonth_btn")
         steps = 0
@@ -253,10 +310,10 @@ class CarmaClient:
             latest_month = chart.reading_date.replace(day=1)
             if chart.month >= latest_month:
                 return html
-            if steps >= MAX_FORWARD_STEPS:
+            if steps >= MAX_FORWARD_MONTH_STEPS:
                 raise CarmaParseError(
                     f"Could not reach the latest reading month {latest_month:%Y-%m}; "
-                    f"stopped at {chart.month:%Y-%m} after {MAX_FORWARD_STEPS} month steps"
+                    f"stopped at {chart.month:%Y-%m} after {MAX_FORWARD_MONTH_STEPS} month steps"
                 )
             nxt = await self._press(html, "nextMonth_btn")
             moved = _parse_chart(nxt)
@@ -270,7 +327,7 @@ class CarmaClient:
     async def _read_meter(
         self, html: str, number: str, depth: int
     ) -> tuple[MeterData, str]:
-        """Walk back `depth` months from the newest one."""
+        """Walk back through the requested number of months."""
 
         meter = MeterData(meter_id=number, title="", unit_raw="")
         rows: dict[date, float] = {}
@@ -308,7 +365,7 @@ class CarmaClient:
         return meter, html
 
     async def _previous_month(self, html: str, month: date) -> str:
-        """Move to the previous month and correct portal navigation overshoots."""
+        """Move to the previous month and correct any navigation overshoot."""
 
         html = await self._press(html, "prevMonth_btn")
         for _ in range(2):
@@ -340,7 +397,7 @@ class CarmaClient:
     async def async_fetch(
         self, months: int | dict[str, int], only: set[str] | None = None
     ) -> list[MeterData]:
-        """Read every meter for the requested number of months."""
+        """Read the selected meters for the requested number of months."""
 
         html = await self.async_login()
         tabs = parse_tabs(html)
@@ -364,6 +421,6 @@ class CarmaClient:
         return result
 
     async def async_discover(self) -> list[MeterData]:
-        """Meters on the account."""
+        """Discover the meters available on the account."""
 
         return await self.async_fetch(1)

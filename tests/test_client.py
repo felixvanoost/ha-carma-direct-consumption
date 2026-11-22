@@ -88,7 +88,7 @@ async def test_latest_month_traversal_rejects_step_limit(session, portal, monkey
     """Reject navigation that reaches its configured step limit."""
 
     portal.current_works = False
-    monkeypatch.setattr(api, "MAX_FORWARD_STEPS", 0)
+    monkeypatch.setattr(api, "MAX_FORWARD_MONTH_STEPS", 0)
 
     with pytest.raises(CarmaParseError, match="after 0 month steps"):
         await client(session, portal).async_fetch(1)
@@ -204,6 +204,45 @@ async def test_persistent_server_errors_give_up(session, portal):
         await client(session, portal).async_fetch(12)
 
 
+# pylint: disable-next=redefined-outer-name
+async def test_permanent_http_error_is_not_retried(session, portal, monkeypatch):
+    """Return permanent HTTP errors immediately instead of repeating the request."""
+
+    carma = client(session, portal)
+    request = session.request
+    requests = 0
+
+    def count_request(method, url, **kwargs):
+        nonlocal requests
+        if url.endswith("/missing"):
+            requests += 1
+        return request(method, url, **kwargs)
+
+    monkeypatch.setattr(session, "request", count_request)
+
+    with pytest.raises(CarmaConnectionError, match="404"):
+        # pylint: disable-next=protected-access
+        await carma._request("GET", f"{const.BASE_URL}missing")
+
+    assert requests == 1
+
+
+@pytest.mark.parametrize(
+    ("headers", "fallback", "expected"),
+    [
+        ({}, 2.0, 2.0),
+        ({"Retry-After": "7"}, 2.0, 7.0),
+        ({"Retry-After": "900"}, 2.0, api.MAX_RETRY_AFTER_SECONDS),
+        ({"Retry-After": "invalid"}, 2.0, 2.0),
+    ],
+)
+def test_retry_delay_is_bounded(headers, fallback, expected):
+    """Use valid Retry-After values and fall back for malformed headers."""
+
+    # pylint: disable-next=protected-access
+    assert CarmaClient._retry_delay(headers, fallback) == expected
+
+
 @pytest.mark.parametrize("failure", [aiohttp.ClientConnectionError, TimeoutError])
 async def test_transient_network_error_is_retried(
     # pylint: disable-next=redefined-outer-name
@@ -214,7 +253,7 @@ async def test_transient_network_error_is_retried(
 ):
     """Retry a temporary connection error or timeout and continue signing in."""
 
-    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS", (0, 0))
+    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS_SECONDS", (0, 0))
     request = session.request
     login_gets = 0
 
@@ -242,7 +281,7 @@ async def test_connection_errors_give_up_after_bounded_retries(
 ):
     """Stop retrying after the retry limit is exceeded."""
 
-    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS", (0, 0))
+    monkeypatch.setattr(api, "REQUEST_RETRY_DELAYS_SECONDS", (0, 0))
     login_gets = 0
 
     def fail_login_get(method, url, **_kwargs):

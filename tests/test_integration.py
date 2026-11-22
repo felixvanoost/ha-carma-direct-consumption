@@ -200,6 +200,7 @@ async def test_saved_import_state_is_validated(
     coordinator = entry.runtime_data
     valid_stat_id = statistic_id(COLD)
 
+    # pylint: disable-next=protected-access
     await coordinator._store.async_save(
         {
             valid_stat_id: {"cursor": "2026-10-01", "sum_before": 12.5},
@@ -212,6 +213,7 @@ async def test_saved_import_state_is_validated(
 
     await coordinator.async_load_state()
 
+    # pylint: disable-next=protected-access
     assert coordinator._state == {
         valid_stat_id: {"cursor": "2026-10-01", "sum_before": 12.5}
     }
@@ -235,9 +237,11 @@ async def test_valid_pending_reimport_state_is_loaded(
         "months": {COLD: 12, HOT: 12, ELEC: 12},
     }
 
+    # pylint: disable-next=protected-access
     await coordinator._store.async_save({REIMPORT_STATE_KEY: marker})
     await coordinator.async_load_state()
 
+    # pylint: disable-next=protected-access
     assert coordinator._state == {REIMPORT_STATE_KEY: marker}
     assert not coordinator.is_first_run
 
