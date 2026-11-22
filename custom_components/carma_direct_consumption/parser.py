@@ -32,6 +32,8 @@ _MONTHS = {
 
 
 def _month_number(name: str) -> int | None:
+    """Return a month number for a month name."""
+
     return _MONTHS.get(name[:3].lower())
 
 
@@ -59,6 +61,8 @@ class _FormParser(HTMLParser):
         self._sel_first: str | None = None
 
     def handle_starttag(self, tag, attrs):
+        """Collect fields and options from the current HTML tag."""
+
         a = {k: (v if v is not None else "") for k, v in attrs}
         if tag == "form" and not self._seen_form:
             self._seen_form = self._in_form = True
@@ -81,6 +85,8 @@ class _FormParser(HTMLParser):
                 self._sel_default = value
 
     def handle_endtag(self, tag):
+        """Finish the form or select element currently being parsed."""
+
         if tag == "select" and self._sel_name:
             self.form.fields[self._sel_name] = (
                 self._sel_default
@@ -92,6 +98,8 @@ class _FormParser(HTMLParser):
             self._in_form = False
 
     def _input(self, a: dict[str, str]) -> None:
+        """Store a form input or button in the parsed form."""
+
         name = a.get("name")
         kind = a.get("type", "text").lower()
         if not name or kind in ("reset", "file"):
@@ -116,7 +124,7 @@ def parse_form(html: str) -> ParsedForm:
 
 
 def parse_tabs(html: str) -> list[tuple[int, str]]:
-    """[(tab index, meter number)] from the tab headers."""
+    """Return meter tab indexes and meter numbers."""
 
     found = re.findall(
         r'id="__tab_tabMeters_tabMeter(\d+)"[^>]*>\s*<span>([^<]*)</span>', html
@@ -169,7 +177,7 @@ def parse_chart(html: str) -> Chart | None:
 def _parse_chart_header(config: str) -> tuple[str, date, str]:
     """Extract the title, month, and unit from a chart configuration."""
 
-    title = _first(r"title:\s*\{\s*text:\s*'([^']*)'", config)
+    title = _first(r"title:\s*\{\s*text:\s*'(.*?)(?<!\\)'", config)
     if not title:
         raise ChartParseError("Chart title is missing")
     mm = re.search(r"During\s+([A-Za-z]+)\s+(\d{4})", title)
@@ -180,22 +188,26 @@ def _parse_chart_header(config: str) -> tuple[str, date, str]:
     except ValueError as err:
         raise ChartParseError("Chart title has an invalid year") from err
 
-    unit_raw = _first(r"yAxis:\s*\{\s*title:\s*\{\s*text:\s*'([^']*)'", config)
+    unit_raw = _first(r"yAxis:\s*\{\s*title:\s*\{\s*text:\s*'(.*?)(?<!\\)'", config)
     if not unit_raw:
         raise ChartParseError("Chart unit is missing")
     return title, month, unit_raw
 
 
 def _parse_reading(config: str) -> tuple[float | None, date | None]:
-    """Extract and validate the meter reading and its reported date."""
+    """Get and validate the meter reading and reading date."""
+
     reading = reading_date = None
     rm = re.search(
         r"Reading as of\s+(?:[A-Za-z]+,\s*)?(\d{1,2})\s+([A-Za-z]+)\s+"
         r"(\d{4})\s+is\s+(-?[\d,]*\.?\d+)",
-        _first(r"subtitle:\s*\{\s*text:\s*'([^']*)'", config),
+        _first(r"subtitle:\s*\{\s*text:\s*'(.*?)(?<!\\)'", config),
     )
     if rm:
-        reading = float(rm.group(4).replace(",", ""))
+        reading_value = float(rm.group(4).replace(",", ""))
+        if not math.isfinite(reading_value):
+            raise ChartParseError("Meter reading is out of range")
+        reading = reading_value
         n = _month_number(rm.group(2))
         if not n:
             raise ChartParseError("Invalid reading date")
@@ -242,6 +254,8 @@ def _parse_values(config: str) -> list[float | None]:
     data = re.search(r"data:\s*\[(.*?)\]", series, re.S)
     if not data:
         raise ChartParseError("Daily consumption data is missing or malformed")
+    if not data.group(1).strip():
+        return []
     return [_parse_chart_value(item) for item in _split_array(data.group(1))]
 
 
@@ -311,6 +325,8 @@ def _split_array(value: str) -> list[str]:
 
 
 def _parse_chart_value(item: str) -> float | None:
+    """Parse and validate one Highcharts data value."""
+
     number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
     if item == "null":
         return None
@@ -328,11 +344,17 @@ def _parse_chart_value(item: str) -> float | None:
 
 
 def _first(pattern: str, text: str) -> str:
+    """Return the first regex match and unescape JavaScript text."""
+
     m = re.search(pattern, text)
-    return m.group(1) if m else ""
+    if not m:
+        return ""
+    return m.group(1).replace(r"\'", "'").replace(r"\\", "\\")
 
 
 def _parse_category(cat: str) -> date | None:
+    """Convert a chart category to a date."""
+
     m = re.fullmatch(r"(\d{1,2})/([A-Za-z]{3,})/(\d{4})", cat.strip())
     if not m or not (n := _month_number(m.group(2))):
         return None
