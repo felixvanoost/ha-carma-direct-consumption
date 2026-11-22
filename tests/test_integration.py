@@ -394,7 +394,11 @@ async def test_config_flow_roles_and_import(
     assert result["errors"] == {"base": "invalid_auth"}
 
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_ADDRESS: ADDRESS, CONF_ACCOUNT: ACCOUNT}
+        result["flow_id"],
+        {
+            CONF_ADDRESS: f"  {ADDRESS}  ",
+            CONF_ACCOUNT: f"  {ACCOUNT}  ",
+        },
     )
     assert result["step_id"] == "meters"
     guesses = {
@@ -421,6 +425,8 @@ async def test_config_flow_roles_and_import(
         HOT: "cold_water",
         ELEC: "electricity",
     }
+    assert result["data"][CONF_ADDRESS] == ADDRESS
+    assert result["data"][CONF_ACCOUNT] == ACCOUNT
     assert result["data"][CONF_HISTORY_MONTHS] == 3
 
     await hass.async_block_till_done(wait_background_tasks=True)
@@ -529,6 +535,36 @@ async def test_config_flow_cannot_connect(
         result["flow_id"], {CONF_ADDRESS: ADDRESS, CONF_ACCOUNT: ACCOUNT}
     )
     assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_reauth_normalizes_credentials(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    # pylint: disable-next=unused-argument
+    portal,
+):
+    """Trim replacement credentials and update the account identity."""
+
+    entry = await setup_entry(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reauth", "entry_id": entry.entry_id},
+        data=entry.data,
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_ADDRESS: f"  {ADDRESS}  ", CONF_ACCOUNT: f"  {ACCOUNT}  "},
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_ADDRESS] == ADDRESS
+    assert entry.data[CONF_ACCOUNT] == ACCOUNT
+    assert entry.unique_id == f"{ADDRESS}|{ACCOUNT}".casefold()
 
 
 async def test_history_walk_is_logged(

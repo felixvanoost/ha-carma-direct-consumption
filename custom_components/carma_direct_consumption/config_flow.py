@@ -59,6 +59,15 @@ def _field_key(meter_id: str, unit_raw: str) -> str:
     return f"Meter {meter_id} ({unit_raw or 'unit unknown'})"
 
 
+def _normalize_credentials(address: str, account: str) -> tuple[str, str, str]:
+    """Trim credentials and return their normalized unique-account identity."""
+
+    normalized_address = address.strip()
+    normalized_account = account.strip()
+    unique_id = f"{normalized_address}|{normalized_account}".casefold()
+    return normalized_address, normalized_account, unique_id
+
+
 def guess_roles(meters: list[MeterData]) -> dict[str, str]:
     """Infer meter roles from titles and units."""
 
@@ -108,6 +117,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._credentials: dict[str, str] = {}
+        self._unique_id: str | None = None
         self._meters: list[MeterData] = []
 
     @staticmethod
@@ -124,11 +134,11 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
-            address, account = (
-                user_input[CONF_ADDRESS].strip(),
-                user_input[CONF_ACCOUNT].strip(),
+            address, account, unique_id = _normalize_credentials(
+                user_input[CONF_ADDRESS], user_input[CONF_ACCOUNT]
             )
-            await self.async_set_unique_id(f"{address}|{account}".lower())
+            self._unique_id = unique_id
+            await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
             try:
                 self._meters = await _validate(self.hass, address, account)
@@ -187,9 +197,8 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            address, account = (
-                user_input[CONF_ADDRESS].strip(),
-                user_input[CONF_ACCOUNT].strip(),
+            address, account, unique_id = _normalize_credentials(
+                user_input[CONF_ADDRESS], user_input[CONF_ACCOUNT]
             )
             try:
                 self._meters = await _validate(self.hass, address, account)
@@ -199,6 +208,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             else:
                 self._credentials = {CONF_ADDRESS: address, CONF_ACCOUNT: account}
+                self._unique_id = unique_id
                 return await self.async_step_reconfigure_meters()
         return self.async_show_form(
             step_id="reconfigure",
@@ -234,6 +244,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
             return self.async_update_reload_and_abort(
                 entry,
+                unique_id=self._unique_id,
                 data_updates=data_updates,
                 options=options,
                 reason="reconfigure_successful",
@@ -260,9 +271,8 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            address, account = (
-                user_input[CONF_ADDRESS].strip(),
-                user_input[CONF_ACCOUNT].strip(),
+            address, account, unique_id = _normalize_credentials(
+                user_input[CONF_ADDRESS], user_input[CONF_ACCOUNT]
             )
             try:
                 await _validate(self.hass, address, account)
@@ -272,7 +282,9 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_update_reload_and_abort(
-                    entry, data_updates={CONF_ADDRESS: address, CONF_ACCOUNT: account}
+                    entry,
+                    unique_id=unique_id,
+                    data_updates={CONF_ADDRESS: address, CONF_ACCOUNT: account},
                 )
         return self.async_show_form(
             step_id="reauth_confirm",
