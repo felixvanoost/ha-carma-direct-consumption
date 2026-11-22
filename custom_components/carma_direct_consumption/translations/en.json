@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "CARMA Direct Consumption",
-        "description": "Sign in with the same service address and account number you use on the CARMA Direct Consumption or billing portal.",
+        "description": "Sign in using the service address and account number shown on your CARMA bill.",
         "data": {
           "service_address": "Service address",
           "account_number": "Account number"
@@ -11,41 +11,54 @@
       },
       "meters": {
         "title": "What does each meter measure?",
-        "description": "The portal does not specify what each meter measures. Check your CARMA bill to confirm, then assign the roles below.",
+        "description": "The portal does not identify meter roles. Check your CARMA bill, then assign a role to each meter.",
         "data": {
           "history_months": "Months of history to import (if available)."
         }
       },
       "reauth_confirm": {
         "title": "Sign in again",
-        "description": "CARMA rejected the saved service address / account number.",
+        "description": "CARMA rejected the saved service address or account number.",
         "data": {
           "service_address": "Service address",
           "account_number": "Account number"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure CARMA",
+        "description": "Sign in again to discover the meters currently associated with this account.",
+        "data": {
+          "service_address": "Service address",
+          "account_number": "Account number"
+        }
+      },
+      "reconfigure_meters": {
+        "title": "Update meter roles",
+        "description": "Review and update the roles for the meters reported by the portal."
       }
     },
     "error": {
-      "invalid_auth": "CARMA rejected the saved service address / account number.",
-      "cannot_connect": "Could not reach the CARMA portal, or its pages weren't in the expected format."
+      "invalid_auth": "CARMA rejected the saved service address or account number.",
+      "cannot_connect": "Could not connect to the CARMA portal or read its pages."
     },
     "abort": {
       "already_configured": "This account is already set up.",
-      "reauth_successful": "Signed in again."
+      "reauth_successful": "Signed in again.",
+      "reconfigure_successful": "The account settings were updated."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Meter roles",
-        "description": "Change what each meter measures."
+        "description": "Change the role assigned to each meter."
       }
     }
   },
   "services": {
     "reimport_history": {
       "name": "Re-import history",
-      "description": "Deletes the imported readings and reads the last N months from the portal again. This can take a few minutes.",
+      "description": "Removes the imported readings and reads the selected number of months from the portal again. This can take several minutes.",
       "fields": {
         "months": {
           "name": "Months",

@@ -41,6 +41,7 @@ from custom_components.carma_direct_consumption.coordinator import (
 )
 
 from .mock_carma import ACCOUNT, ADDRESS, METERS, TODAY
+from . import mock_carma
 
 COLD, HOT, ELEC = "21145135", "21167069", "M0129495"
 ROLES = {COLD: "cold_water", HOT: "hot_water", ELEC: "electricity"}
@@ -48,13 +49,13 @@ ROLES = {COLD: "cold_water", HOT: "hot_water", ELEC: "electricity"}
 
 @pytest.fixture(autouse=True)
 def fixed_today(monkeypatch):
-    """Use a stable date for coordinator history filtering."""
+    """Fix today's date for stable history filtering."""
 
     monkeypatch.setattr(CarmaCoordinator, "_today", lambda self: TODAY)
 
 
 async def setup_entry(hass, roles=None, history=12) -> MockConfigEntry:
-    """Create and set up an entry with the requested meter roles."""
+    """Set up an entry with the requested meter roles."""
 
     if roles is None:
         roles = ROLES
@@ -78,7 +79,7 @@ async def setup_entry(hass, roles=None, history=12) -> MockConfigEntry:
 
 
 async def stats(hass, meter_id):
-    """Return recorded statistics for a meter."""
+    """Return the recorded statistics for a meter."""
 
     sid = statistic_id(meter_id)
     result = await get_instance(hass).async_add_executor_job(
@@ -96,7 +97,7 @@ async def stats(hass, meter_id):
 
 
 async def meta(hass, meter_id):
-    """Return Recorder metadata for a meter."""
+    """Return the Recorder metadata for a meter."""
 
     sid = statistic_id(meter_id)
     found = await get_instance(hass).async_add_executor_job(
@@ -114,7 +115,7 @@ async def test_first_import_hot_cold_electricity(
     hass,
     portal,
 ):
-    """Import all meter roles and create corresponding sensors."""
+    """Import every meter role and create its sensors."""
 
     entry = await setup_entry(hass)
     assert not portal.violations
@@ -168,7 +169,7 @@ async def test_remove_stale_device_but_keep_configured_meter(
     # pylint: disable-next=unused-argument
     portal,
 ):
-    """Offer stale devices for removal without removing configured meters."""
+    """Allow stale devices to be removed while keeping configured meters."""
 
     entry = await setup_entry(hass)
     registry = dr.async_get(hass)
@@ -194,7 +195,7 @@ async def test_saved_import_state_is_validated(
     # pylint: disable-next=unused-argument
     portal,
 ):
-    """Discard malformed persisted cursors and re-import markers."""
+    """Discard malformed saved cursors and re-import markers."""
 
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
@@ -228,7 +229,7 @@ async def test_valid_pending_reimport_state_is_loaded(
     # pylint: disable-next=unused-argument
     portal,
 ):
-    """Load a complete pending re-import marker without losing its types."""
+    """Load a complete pending re-import marker."""
 
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
@@ -255,7 +256,7 @@ async def test_role_mismatch_does_not_apply_incompatible_device_class(
     # pylint: disable-next=unused-argument
     portal,
 ):
-    """Do not assign the water class to a meter configured as electricity."""
+    """Keep an incompatible meter from receiving a water device class."""
 
     await setup_entry(hass, roles={COLD: "electricity", HOT: "skip", ELEC: "skip"})
 
@@ -275,7 +276,7 @@ async def test_next_day_and_revision_keep_totals_exact(
     hass,
     portal,
 ):
-    """Apply revised and new readings without changing older totals."""
+    """Apply revised readings without changing earlier totals."""
 
     entry = await setup_entry(hass)
     before = {mid: await stats(hass, mid) for mid, *_ in METERS}
@@ -310,7 +311,7 @@ async def test_skipped_meter_is_not_imported(
     hass,
     portal,
 ):
-    """Do not create statistics or sensors for skipped meters."""
+    """Skip creating statistics and sensors for excluded meters."""
 
     await setup_entry(hass, roles={COLD: "cold_water", HOT: "hot_water", ELEC: "skip"})
     assert await stats(hass, ELEC) == []
@@ -327,7 +328,7 @@ async def test_swapping_hot_and_cold_renames_without_duplicating(
     # pylint: disable-next=unused-argument
     portal,
 ):
-    """Update meter labels when the user swaps water roles."""
+    """Update meter labels when water roles are swapped."""
 
     entry = await setup_entry(hass)
     n = len(await stats(hass, COLD))
@@ -360,7 +361,7 @@ async def test_config_flow_roles_and_import(
     # pylint: disable-next=unused-argument
     portal,
 ):
-    """Configure portal credentials, roles, and history depth."""
+    """Configure credentials, roles, and history depth."""
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
@@ -422,6 +423,71 @@ async def test_config_flow_roles_and_import(
     )
 
 
+async def test_reconfigure_rediscover_removes_stale_meter_and_adds_new_meter(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    # pylint: disable-next=unused-argument
+    portal,
+    monkeypatch,
+):
+    """Preserve existing roles while refreshing the configured meter list."""
+
+    entry = await setup_entry(hass)
+    new_meter_id = "NEW00001"
+    monkeypatch.setattr(
+        mock_carma,
+        "METERS",
+        [
+            (COLD, "m^3-wtr", 0.05),
+            (ELEC, "kWh", 8.0),
+            (new_meter_id, "kWh", 1.0),
+        ],
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reconfigure", "entry_id": entry.entry_id},
+    )
+    assert result["step_id"] == "reconfigure"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_ADDRESS: ADDRESS, CONF_ACCOUNT: "wrong"},
+    )
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "invalid_auth"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_ADDRESS: ADDRESS, CONF_ACCOUNT: ACCOUNT},
+    )
+    assert result["step_id"] == "reconfigure_meters"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            f"Meter {COLD} (m^3-wtr)": "cold_water",
+            f"Meter {ELEC} (kWh)": "electricity",
+            f"Meter {new_meter_id} (kWh)": "electricity",
+        },
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert entry.data[CONF_METERS] == {
+        COLD: "cold_water",
+        ELEC: "electricity",
+        new_meter_id: "electricity",
+    }
+    assert entry.options[CONF_METERS] == entry.data[CONF_METERS]
+    assert HOT not in entry.data[CONF_METERS]
+    assert HOT not in entry.data[CONF_UNITS]
+
+
 async def test_config_flow_cannot_connect(
     # pylint: disable-next=unused-argument
     recorder_mock,
@@ -432,7 +498,7 @@ async def test_config_flow_cannot_connect(
     # pylint: disable-next=unused-argument
     socket_enabled,
 ):
-    """Show a connection error when the portal cannot be reached."""
+    """Show a connection error when the portal is unavailable."""
 
     monkeypatch.setattr(const, "BASE_URL", "http://127.0.0.1:9/portal/")
     result = await hass.config_entries.flow.async_init(
@@ -454,7 +520,7 @@ async def test_history_walk_is_logged(
     portal,
     caplog,
 ):
-    """Log the history range and reason month navigation stopped."""
+    """Log the history range and reason navigation stopped."""
 
     caplog.set_level("INFO")
     await setup_entry(hass)
@@ -474,7 +540,7 @@ async def test_reimport_service_rebuilds_history_consistently(
     portal,
     monkeypatch,
 ):
-    """Rebuild the requested history and preserve cumulative totals."""
+    """Rebuild requested history while preserving cumulative totals."""
 
     entry = await setup_entry(hass, history=2)
     assert len(await stats(hass, COLD)) < len(portal.all_days())
@@ -527,7 +593,7 @@ async def test_failed_reimport_preserves_existing_history(
     hass,
     portal,
 ):
-    """Keep existing statistics when the re-import fetch fails."""
+    """Preserve existing statistics when re-import fetching fails."""
 
     entry = await setup_entry(hass)
     before = await stats(hass, COLD)
@@ -550,7 +616,7 @@ async def test_incomplete_reimport_preserves_existing_history(
     portal,
     monkeypatch,
 ):
-    """Keep existing statistics when the re-import response omits a meter."""
+    """Preserve existing statistics when re-import omits a meter."""
 
     entry = await setup_entry(hass)
     before = await stats(hass, COLD)
@@ -577,7 +643,7 @@ async def test_reimport_recovers_when_statistics_import_fails(
     portal,
     monkeypatch,
 ):
-    """Rebuild all cleared statistics on the next refresh after an import failure."""
+    """Rebuild cleared statistics after an import failure."""
 
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
@@ -620,7 +686,7 @@ async def test_reimport_recovers_when_saving_state_fails(
     portal,
     monkeypatch,
 ):
-    """Rebuild statistics again if saving completed import cursors fails."""
+    """Rebuild statistics when saving completed cursors fails."""
 
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
@@ -655,7 +721,7 @@ async def test_failed_refresh_retries_in_30_minutes(
     hass,
     portal,
 ):
-    """Retry failed scheduled updates after the configured delay."""
+    """Retry a failed scheduled update after the configured delay."""
 
     portal.fail_prev_posts = 99
     entry = await setup_entry(hass)
@@ -671,7 +737,7 @@ async def test_scheduled_refresh_picks_up_new_day_without_manual_refresh(
     hass,
     portal,
 ):
-    """Fetch a newly published day during the scheduled refresh."""
+    """Fetch a newly published day during a scheduled refresh."""
 
     await setup_entry(hass)
     n = len(await stats(hass, COLD))
@@ -697,7 +763,7 @@ async def test_unpublished_zero_days_are_not_imported_and_later_days_arrive(
     hass,
     portal,
 ):
-    """Skip padded future zeroes and import them once published."""
+    """Skip future padded zeroes until they are published."""
 
     portal.pad_zeros = True
     portal.through = date(2026, 10, 15)
@@ -737,7 +803,7 @@ async def test_real_zero_days_inside_the_month_are_kept(
     hass,
     portal,
 ):
-    """Keep valid zero-usage dates within the reported month."""
+    """Keep genuine zero-usage dates in the reported month."""
 
     portal.pad_zeros = True
     portal.through = date(2026, 10, 19)

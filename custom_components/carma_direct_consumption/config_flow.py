@@ -60,7 +60,7 @@ def _field_key(meter_id: str, unit_raw: str) -> str:
 
 
 def guess_roles(meters: list[MeterData]) -> dict[str, str]:
-    """Guess the role of each meter based on its title and units."""
+    """Infer meter roles from titles and units."""
 
     roles: dict[str, str] = {}
     water_seen = 0
@@ -98,7 +98,7 @@ def _credentials_schema(defaults: Mapping[str, str] | None = None) -> vol.Schema
 
 # pylint: disable-next=abstract-method
 class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Configure credentials and select the meters to import."""
+    """Configure portal credentials and meter roles."""
 
     VERSION = 1
 
@@ -115,7 +115,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # -- initial setup ------------------------------------------------------- #
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        """Validate portal credentials and discover account meters."""
+        """Validate credentials and discover account meters."""
 
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -139,7 +139,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_meters(self, user_input: dict[str, Any] | None = None):
-        """Select each meter's role and history depth."""
+        """Choose each meter role and history depth."""
 
         keys = {_field_key(m.meter_id, m.unit_raw): m.meter_id for m in self._meters}
         if user_input is not None:
@@ -166,12 +166,81 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="meters", data_schema=vol.Schema(schema))
 
     async def async_step_reauth(self, _entry_data: Mapping[str, Any]):
-        """Begin re-authentication for the existing config entry."""
+        """Start reauthentication for the existing entry."""
 
         return await self.async_step_reauth_confirm()
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Rediscover meters and update account settings."""
+
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            address, account = (
+                user_input[CONF_ADDRESS].strip(),
+                user_input[CONF_ACCOUNT].strip(),
+            )
+            try:
+                self._meters = await _validate(self.hass, address, account)
+            except CarmaAuthError:
+                errors["base"] = "invalid_auth"
+            except CarmaError:
+                errors["base"] = "cannot_connect"
+            else:
+                self._credentials = {CONF_ADDRESS: address, CONF_ACCOUNT: account}
+                return await self.async_step_reconfigure_meters()
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_credentials_schema(user_input or entry.data),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_meters(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Update meter roles after rediscovery."""
+
+        entry = self._get_reconfigure_entry()
+        data = entry.data
+        options = dict(entry.options)
+        current_roles = options.get(CONF_METERS, data[CONF_METERS])
+        keys = {
+            _field_key(meter.meter_id, meter.unit_raw): meter.meter_id
+            for meter in self._meters
+        }
+
+        if user_input is not None:
+            roles = {keys[key]: user_input[key] for key in keys}
+            units = {meter.meter_id: meter.unit_raw for meter in self._meters}
+            options[CONF_METERS] = roles
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates={
+                    **self._credentials,
+                    CONF_METERS: roles,
+                    CONF_UNITS: units,
+                },
+                options=options,
+                reason="reconfigure_successful",
+            )
+
+        guesses = guess_roles(self._meters)
+        schema = {
+            vol.Required(
+                key,
+                default=current_roles.get(meter_id, guesses[meter_id]),
+            ): _ROLE_SELECTOR
+            for key, meter_id in keys.items()
+        }
+        return self.async_show_form(
+            step_id="reconfigure_meters",
+            data_schema=vol.Schema(schema),
+        )
+
     async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None):
-        """Validate replacement credentials and update the config entry."""
+        """Validate replacement credentials and update the entry."""
 
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
@@ -198,7 +267,7 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class CarmaOptionsFlow(_OptionsBase):
-    """Change what each meter measures."""
+    """Change the role assigned to each meter."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Update the configured meter roles."""
