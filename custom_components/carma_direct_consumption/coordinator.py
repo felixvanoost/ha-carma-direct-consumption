@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from datetime import date, datetime, time
+from typing import TypedDict
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
@@ -45,6 +47,23 @@ except ImportError:
 type CarmaConfigEntry = ConfigEntry["CarmaCoordinator"]
 
 
+class ImportCursor(TypedDict):
+    """Track the saved import progress for one meter."""
+
+    cursor: str
+    sum_before: float
+
+
+class ReimportMarker(TypedDict):
+    """Track a pending re-import operation."""
+
+    roles: dict[str, str]
+    months: dict[str, int]
+
+
+type CoordinatorState = dict[str, ImportCursor | ReimportMarker]
+
+
 def statistic_id(meter_id: str) -> str:
     """Return the stable Recorder statistic ID for a meter."""
 
@@ -58,7 +77,7 @@ def configured_roles(entry: ConfigEntry) -> dict[str, str]:
 
 
 class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
-    """Fetches the portal, imports history as external statistics, then serves the latest values."""
+    """Fetch the portal readings, import statistics, and provide the latest meter data."""
 
     config_entry: CarmaConfigEntry
 
@@ -78,18 +97,102 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         )
         self.client = client
         self._role_names = role_names
-        self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
-        self._state: dict[str, dict] = {}
+        self._store: Store[dict[str, object]] = Store(
+            hass, 1, f"{DOMAIN}.{entry.entry_id}"
+        )
+        self._state: CoordinatorState = {}
         self._refresh_lock = asyncio.Lock()
 
     async def async_load_state(self) -> None:
-        """Load saved statistics import cursors."""
+        """Load the saved statistics import cursors."""
 
-        self._state = await self._store.async_load() or {}
+        loaded = await self._store.async_load()
+        if loaded is None:
+            self._state = {}
+            return
+        if not isinstance(loaded, dict):
+            _LOGGER.warning("Ignoring invalid saved CARMA import state.")
+            self._state = {}
+            return
+
+        state: CoordinatorState = {}
+        for key, value in loaded.items():
+            if not isinstance(key, str):
+                _LOGGER.warning("Ignoring CARMA import state with an invalid key.")
+                continue
+            if key == REIMPORT_STATE_KEY:
+                marker = self._validate_reimport_marker(value)
+                if marker is not None:
+                    state[key] = marker
+                continue
+            cursor = self._validate_import_cursor(value)
+            if cursor is not None:
+                state[key] = cursor
+        self._state = state
+
+    @staticmethod
+    def _validate_import_cursor(value: object) -> ImportCursor | None:
+        """Validate a saved meter statistics cursor."""
+
+        if not isinstance(value, dict):
+            _LOGGER.warning("Ignoring malformed CARMA meter import state.")
+            return None
+        cursor = value.get("cursor")
+        sum_before = value.get("sum_before")
+        if not isinstance(cursor, str):
+            _LOGGER.warning("Ignoring CARMA meter import state with no valid cursor.")
+            return None
+        try:
+            date.fromisoformat(cursor)
+        except ValueError:
+            _LOGGER.warning(
+                "Ignoring CARMA meter import state with invalid cursor %r.", cursor
+            )
+            return None
+        if (
+            not isinstance(sum_before, (int, float))
+            or isinstance(sum_before, bool)
+            or not math.isfinite(sum_before)
+            or sum_before < 0
+        ):
+            _LOGGER.warning(
+                "Ignoring CARMA meter import state with invalid cumulative total."
+            )
+            return None
+        return {"cursor": cursor, "sum_before": float(sum_before)}
+
+    @staticmethod
+    def _validate_reimport_marker(value: object) -> ReimportMarker | None:
+        """Validate a pending re-import marker."""
+
+        if not isinstance(value, dict):
+            _LOGGER.warning("Ignoring malformed CARMA re-import state.")
+            return None
+        roles = value.get("roles")
+        months = value.get("months")
+        if not isinstance(roles, dict) or not isinstance(months, dict):
+            _LOGGER.warning("Ignoring incomplete CARMA re-import state.")
+            return None
+        if not all(
+            isinstance(meter_id, str) and isinstance(role, str)
+            for meter_id, role in roles.items()
+        ):
+            _LOGGER.warning("Ignoring CARMA re-import state with invalid meter roles.")
+            return None
+        if not all(
+            isinstance(meter_id, str)
+            and isinstance(depth, int)
+            and not isinstance(depth, bool)
+            and 1 <= depth <= 120
+            for meter_id, depth in months.items()
+        ):
+            _LOGGER.warning("Ignoring CARMA re-import state with invalid month depths.")
+            return None
+        return {"roles": dict(roles), "months": dict(months)}
 
     @property
     def is_first_run(self) -> bool:
-        """Whether the integration has no saved import progress."""
+        """Report whether the integration has no saved import progress."""
 
         return not self._state
 
@@ -99,27 +202,30 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         return dt_util.now().date()
 
     def _months_needed(self, meter_id: str) -> int:
-        """Choose a history depth that catches up the meter while retaining overlap."""
+        """Choose a history depth that catches up with the meter."""
 
         history = int(
             self.config_entry.data.get(CONF_HISTORY_MONTHS, DEFAULT_HISTORY_MONTHS)
         )
         st = self._state.get(statistic_id(meter_id))
-        if not st:
+        if not isinstance(st, dict) or "cursor" not in st:
             return history
-        cursor = date.fromisoformat(st["cursor"])
+        cursor_value = st.get("cursor")
+        if not isinstance(cursor_value, str):
+            return history
+        cursor = date.fromisoformat(cursor_value)
         today = self._today()
         behind = (today.year - cursor.year) * 12 + today.month - cursor.month
         return min(max(REFRESH_MONTHS, behind + 2), max(history, REFRESH_MONTHS))
 
     async def _async_update_data(self) -> dict[str, MeterData]:
-        """Fetch readings, import statistics, and return the latest meter data."""
+        """Fetch readings, import statistics, and return the latest data."""
 
         roles = configured_roles(self.config_entry)
         wanted = {m for m, role in roles.items() if role != ROLE_SKIP}
         async with self._refresh_lock:
             pending_reimport = self._state.get(REIMPORT_STATE_KEY)
-            if pending_reimport:
+            if isinstance(pending_reimport, dict) and "roles" in pending_reimport:
                 roles = pending_reimport["roles"]
                 months = pending_reimport["months"]
                 wanted = {
@@ -199,7 +305,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             self._import_statistics(meter, roles[meter.meter_id])
 
     async def async_reimport(self, months: int) -> None:
-        """Clear imported statistics and rebuild them from recent portal readings."""
+        """Clear the imported statistics and rebuild them from portal readings."""
 
         roles = configured_roles(self.config_entry)
         wanted = {meter_id for meter_id, role in roles.items() if role != ROLE_SKIP}
@@ -226,7 +332,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         roles: dict[str, str],
         months: dict[str, int],
     ) -> None:
-        """Clear and rebuild statistics."""
+        """Clear the existing statistics and rebuild them."""
 
         marker = {"roles": roles, "months": months}
         pending_state = {**self._state, REIMPORT_STATE_KEY: marker}
@@ -250,12 +356,19 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         self._state = completed_state
 
     def _import_statistics(self, meter: MeterData, role: str) -> None:
-        """Add the daily consumption as cumulative statistics (one value per local midnight)."""
+        """Import the daily consumption as cumulative statistics."""
 
         stat_id = statistic_id(meter.meter_id)
-        st = self._state.get(stat_id, {})
-        cursor: str | None = st.get("cursor")
-        sum_before: float = st.get("sum_before", 0.0)
+        st = self._state.get(stat_id)
+        cursor: str | None = None
+        sum_before = 0.0
+        if isinstance(st, dict) and "cursor" in st:
+            cursor_value = st.get("cursor")
+            sum_before_value = st.get("sum_before")
+            if isinstance(cursor_value, str):
+                cursor = cursor_value
+            if isinstance(sum_before_value, (int, float)):
+                sum_before = float(sum_before_value)
 
         today = self._today()
         new = [
@@ -281,7 +394,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
 
     @staticmethod
     def _warn_if_cursor_is_ahead(meter: MeterData, cursor: str | None) -> None:
-        """Warn when saved progress is later than data returned by the portal."""
+        """Warn if saved progress is ahead of the portal data."""
 
         if cursor and meter.rows and cursor > meter.rows[-1][0].isoformat():
             _LOGGER.warning(
@@ -296,7 +409,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     def _statistics_for_readings(
         readings: list[tuple[date, float]], sum_before: float
     ) -> list[StatisticData]:
-        """Create cumulative Recorder statistics for daily readings."""
+        """Create cumulative Recorder statistics for the daily readings."""
 
         timezone = dt_util.get_default_time_zone()
         running = sum_before
@@ -315,7 +428,7 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     def _statistic_metadata(
         self, meter: MeterData, role: str, stat_id: str
     ) -> StatisticMetaData:
-        """Build Recorder metadata for a meter's external statistics."""
+        """Create Recorder metadata for a meter."""
 
         unit, unit_class, _ = unit_info(meter.unit_raw)
         return StatisticMetaData(

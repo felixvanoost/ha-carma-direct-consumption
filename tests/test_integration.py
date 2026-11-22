@@ -185,6 +185,63 @@ async def test_remove_stale_device_but_keep_configured_meter(
     assert await async_remove_config_entry_device(hass, entry, stale_device)
 
 
+async def test_saved_import_state_is_validated(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    # pylint: disable-next=unused-argument
+    portal,
+):
+    """Discard malformed persisted cursors and re-import markers."""
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    valid_stat_id = statistic_id(COLD)
+
+    await coordinator._store.async_save(
+        {
+            valid_stat_id: {"cursor": "2026-10-01", "sum_before": 12.5},
+            statistic_id(HOT): {"cursor": "not-a-date", "sum_before": 1.0},
+            statistic_id(ELEC): {"cursor": "2026-10-01", "sum_before": -1.0},
+            "invalid-marker": "not-a-state-object",
+            REIMPORT_STATE_KEY: {"roles": "invalid", "months": {"21167069": 12}},
+        }
+    )
+
+    await coordinator.async_load_state()
+
+    assert coordinator._state == {
+        valid_stat_id: {"cursor": "2026-10-01", "sum_before": 12.5}
+    }
+
+
+async def test_valid_pending_reimport_state_is_loaded(
+    # pylint: disable-next=unused-argument
+    recorder_mock,
+    # pylint: disable-next=unused-argument
+    enable_custom_integrations,
+    hass,
+    # pylint: disable-next=unused-argument
+    portal,
+):
+    """Load a complete pending re-import marker without losing its types."""
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    marker = {
+        "roles": {COLD: "cold_water", HOT: "hot_water", ELEC: "electricity"},
+        "months": {COLD: 12, HOT: 12, ELEC: 12},
+    }
+
+    await coordinator._store.async_save({REIMPORT_STATE_KEY: marker})
+    await coordinator.async_load_state()
+
+    assert coordinator._state == {REIMPORT_STATE_KEY: marker}
+    assert not coordinator.is_first_run
+
+
 async def test_role_mismatch_does_not_apply_incompatible_device_class(
     # pylint: disable-next=unused-argument
     recorder_mock,
