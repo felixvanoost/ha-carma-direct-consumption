@@ -214,7 +214,10 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         data = entry.data
         options = dict(entry.options)
-        current_roles = options.get(CONF_METERS, data[CONF_METERS])
+        configured_roles = options.get(CONF_METERS, data[CONF_METERS])
+        current_roles = (
+            configured_roles if isinstance(configured_roles, dict) else {}
+        )
         keys = {
             _field_key(meter.meter_id, meter.unit_raw): meter.meter_id
             for meter in self._meters
@@ -223,14 +226,15 @@ class CarmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             roles = {keys[key]: user_input[key] for key in keys}
             units = {meter.meter_id: meter.unit_raw for meter in self._meters}
-            options[CONF_METERS] = roles
+            options = {**options, CONF_METERS: dict(roles)}
+            data_updates = {
+                **self._credentials,
+                CONF_METERS: dict(roles),
+                CONF_UNITS: dict(units),
+            }
             return self.async_update_reload_and_abort(
                 entry,
-                data_updates={
-                    **self._credentials,
-                    CONF_METERS: roles,
-                    CONF_UNITS: units,
-                },
+                data_updates=data_updates,
                 options=options,
                 reason="reconfigure_successful",
             )

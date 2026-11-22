@@ -506,6 +506,7 @@ async def test_reconfigure_rediscover_removes_stale_meter_and_adds_new_meter(
     assert entry.options[CONF_METERS] == entry.data[CONF_METERS]
     assert HOT not in entry.data[CONF_METERS]
     assert HOT not in entry.data[CONF_UNITS]
+    assert HOT not in entry.options[CONF_METERS]
 
 
 async def test_config_flow_cannot_connect(
