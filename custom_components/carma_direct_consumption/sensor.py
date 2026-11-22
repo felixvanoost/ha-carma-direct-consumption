@@ -12,7 +12,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfEnergy, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -30,12 +29,6 @@ from .const import (
 )
 from .coordinator import CarmaConfigEntry, CarmaCoordinator, configured_roles
 from .parser import unit_info
-
-_HA_UNITS = {
-    "m³": UnitOfVolume.CUBIC_METERS,
-    "gal": UnitOfVolume.GALLONS,
-    "kWh": UnitOfEnergy.KILO_WATT_HOUR,
-}
 
 _WATER_DESCRIPTIONS = (
     SensorEntityDescription(
@@ -111,10 +104,10 @@ class _CarmaSensor(CoordinatorEntity[CarmaCoordinator], SensorEntity):
         super().__init__(coordinator)
         description = _ROLE_DESCRIPTIONS[role][description_index]
         unit_raw = entry.data.get(CONF_UNITS, {}).get(meter_id, "")
-        unit, unit_class, _ = unit_info(unit_raw)
+        unit_info_value = unit_info(unit_raw)
         compatible = (
-            (role in (ROLE_COLD, ROLE_HOT) and unit_class == "volume")
-            or (role == ROLE_ELECTRICITY and unit == "kWh")
+            (role in (ROLE_COLD, ROLE_HOT) and unit_info_value.unit_class == "volume")
+            or (role == ROLE_ELECTRICITY and unit_info_value.unit == "kWh")
         )
         self.entity_description = (
             description
@@ -143,8 +136,7 @@ class _CarmaSensor(CoordinatorEntity[CarmaCoordinator], SensorEntity):
     def native_unit_of_measurement(self) -> str | None:
         if (m := self._meter) is None:
             return None
-        unit = unit_info(m.unit_raw)[0]
-        return _HA_UNITS.get(unit, unit)
+        return unit_info(m.unit_raw).unit
 
 
 class CarmaLastDaySensor(_CarmaSensor):

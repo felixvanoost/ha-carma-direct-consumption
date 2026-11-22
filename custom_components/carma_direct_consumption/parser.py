@@ -155,6 +155,15 @@ class Chart:
     reading_date: date | None = None
 
 
+@dataclass(frozen=True)
+class UnitInfo:
+    """Normalized unit details for a portal meter."""
+
+    unit: str
+    unit_class: str | None
+    meter_type: str
+
+
 class ChartParseError(ValueError):
     """The chart data is present but malformed."""
 
@@ -364,12 +373,14 @@ def _parse_category(cat: str) -> date | None:
         return None
 
 
-def unit_info(unit_raw: str) -> tuple[str, str | None, str]:
+def unit_info(unit_raw: str) -> UnitInfo:
     """Normalize a portal axis label to a Home Assistant unit, unit class, and reading type."""
 
     u = unit_raw.lower()
     if re.search(r"kwh", u):
-        return "kWh", "energy", "electricity"
+        return UnitInfo("kWh", "energy", "electricity")
     if re.search(r"m\^?3|m³|wtr|water", u):
-        return "m³", "volume", "water"
-    return unit_raw, None, "other"
+        return UnitInfo("m³", "volume", "water")
+    if re.search(r"(?:^|[^a-z])(?:l|lit(?:er|re)s?|litres?)(?:[^a-z]|$)", u):
+        return UnitInfo("L", "volume", "water")
+    return UnitInfo(unit_raw, None, "other")

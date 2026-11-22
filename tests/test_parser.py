@@ -2,7 +2,12 @@
 
 import pytest
 
-from custom_components.carma_direct_consumption.parser import ChartParseError, parse_chart
+from custom_components.carma_direct_consumption.parser import (
+    ChartParseError,
+    UnitInfo,
+    parse_chart,
+    unit_info,
+)
 
 
 def chart_html(categories: str, values: str) -> str:
@@ -121,3 +126,19 @@ def test_parse_chart_rejects_malformed_data(categories, values, error):
 
     with pytest.raises(ChartParseError, match=error):
         parse_chart(chart_html(categories, values))
+
+
+@pytest.mark.parametrize(
+    ("unit_raw", "expected"),
+    [
+        ("m^3-wtr", UnitInfo("m³", "volume", "water")),
+        ("m³", UnitInfo("m³", "volume", "water")),
+        ("kWh", UnitInfo("kWh", "energy", "electricity")),
+        ("L", UnitInfo("L", "volume", "water")),
+        ("litres", UnitInfo("L", "volume", "water")),
+    ],
+)
+def test_unit_info_normalizes_metric_units(unit_raw, expected):
+    """Normalize supported metric units without adding imperial units."""
+
+    assert unit_info(unit_raw) == expected

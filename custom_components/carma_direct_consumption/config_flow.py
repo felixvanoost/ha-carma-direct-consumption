@@ -65,7 +65,7 @@ def guess_roles(meters: list[MeterData]) -> dict[str, str]:
     roles: dict[str, str] = {}
     water_seen = 0
     for m in meters:
-        kind = unit_info(m.unit_raw)[2]
+        kind = unit_info(m.unit_raw).meter_type
         text = f"{m.title} {m.unit_raw}".lower()
         if kind == "water":
             if re.search(r"\bhot\b|hwt|\bhw\b", text):

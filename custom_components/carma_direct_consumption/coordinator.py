@@ -430,15 +430,15 @@ class CarmaCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     ) -> StatisticMetaData:
         """Create Recorder metadata for a meter."""
 
-        unit, unit_class, _ = unit_info(meter.unit_raw)
+        unit_info_value = unit_info(meter.unit_raw)
         return StatisticMetaData(
             **_NO_MEAN,
             has_sum=True,
             name=f"{self._role_names[role]} (meter {meter.meter_id})",
             source=DOMAIN,
             statistic_id=stat_id,
-            unit_class=unit_class,
-            unit_of_measurement=unit,
+            unit_class=unit_info_value.unit_class,
+            unit_of_measurement=unit_info_value.unit,
         )
 
     def _save_import_cursor(
